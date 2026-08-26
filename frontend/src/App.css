@@ -1,0 +1,22 @@
+.App {
+    text-align: left;
+}
+
+@media print {
+    .no-print,
+    header,
+    aside {
+        display: none !important;
+    }
+    body {
+        background: #fff !important;
+    }
+    .print-area {
+        border: none !important;
+        max-width: 100% !important;
+        padding: 0 !important;
+    }
+    main {
+        padding: 0 !important;
+    }
+}

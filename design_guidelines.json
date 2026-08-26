@@ -1,0 +1,80 @@
+{
+  "theme": "light",
+  "typography": {
+    "headings": "Cabinet Grotesk",
+    "body": "IBM Plex Sans",
+    "notes": "Use tabular-nums for ALL numeric values (carats, loss %). Line height tight for headers, relaxed for body. Do not use generic fonts for headers."
+  },
+  "colors": {
+    "background": "#FAFAFA",
+    "surface": "#F4F4F5",
+    "primary": "#09090B",
+    "accent": "#B4975A",
+    "warning": "#DC2626",
+    "success": "#16A34A",
+    "notes": "Swiss High-Contrast archetype. 95% monochrome. Color exists only to guide action or indicate loss/success. Tint grey with subtle warmth to suit the Polki/Diamond domain."
+  },
+  "visual_enhancers": {
+    "surfaces": "Neumorphism (The Tactile Variant) for dashboard widgets: mix soft shadows with sharp 1px inner contrasts (border-black/5).",
+    "data_tables": "Grid Borders (Technical Look): Expose the skeleton. border-collapse style with subtle right/bottom borders for each cell.",
+    "forms": "Inputs should have 1px solid borders, focused state must have higher contrast (ring-2 ring-primary).",
+    "print": "Use @media print to hide navigation, sidebars, and actions. Ensure Jangad slip uses strict black-and-white, high-contrast, compact grid."
+  },
+  "components": {
+    "navigation": "Sticky sidebar or top nav with Glassmorphism (backdrop-blur-xl bg-white/70) if content scrolls under, or Solid Background with hard bottom border. Never fully transparent.",
+    "tables": "Shadcn UI tables. Right-align all numeric columns. Use tabular-nums. Include bulk-action affordance.",
+    "buttons": "Sharp rectangular with interaction animations (hover:bg-primary/90 hover:text-white).",
+    "inputs": "Shadcn UI inputs. Generous spacing (p-6) in form wrappers, but dense inside.",
+    "charts": "Shadcn chart components (Recharts). Use horizontal bars for loss comparisons. Avoid pie charts."
+  },
+  "grids_layouts": {
+    "dashboard": "Bento Grid Protocol: High Density Grid (cols-1 md:cols-4). Tight gaps (gap-4). Every pixel utilized.",
+    "mobile": "Mobile-first standard full-width stacked inputs. Tables should have horizontal scroll on mobile with a frozen first column.",
+    "forms": "Multi-column grids on desktop (md:grid-cols-2 lg:grid-cols-4) for data entry to reduce vertical scroll and keep related numeric fields close."
+  },
+  "motion": {
+    "interactions": "Hover states on all interactive elements. Slight lift (-translate-y-1) on cards. Micro-animations for feedback.",
+    "transitions": "Use specific properties (transition-transform, transition-colors), NEVER transition-all."
+  },
+  "accessibility": {
+    "contrast": "Minimum 4.5:1 for normal text. Explicitly set text color on hover. Focus states must have higher contrast.",
+    "testing": "All interactive elements MUST include data-testid attribute (e.g., data-testid='login-submit-button').",
+    "screen_readers": "Native table markup for data tables."
+  },
+  "media": {
+    "icons": "Phosphor Icons (@phosphor-icons/react) for dense dashboard and developer tool look.",
+    "images": [
+      {
+        "url": "https://images.pexels.com/photos/5912127/pexels-photo-5912127.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "auth_background",
+        "description": "Jeweler with magnifying glass and diamonds. Use as hero/split-screen background for login."
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1699511051588-94ee6509de71?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NjV8MHwxfHNlYXJjaHwzfHxjb21wYW55JTIwbG9nbyUyMG1pbmltYWxpc3RpY3xlbnwwfHx8fDE3ODc3MjE2OTN8MA&ixlib=rb-4.1.0&q=85",
+        "category": "brand_logo",
+        "description": "Minimalistic logo mark for the top navigation / header."
+      }
+    ]
+  },
+  "specific_instructions_to_main_agent": [
+    "Ensure all generated components use .jsx or .js extension instead of .tsx since this is a JS project.",
+    "Carat values MUST be strictly formatted to 2 decimals everywhere (e.g., using Number(value).toFixed(2)).",
+    "All numeric columns (Weight, Pcs, Loss, Loss %) must be right-aligned and use 'tabular-nums' Tailwind class.",
+    "Implement an automated calculation effect in forms: e.g., Loss = Issue Weight - Return Weight; Loss % = (Loss / Issue Weight) * 100.",
+    "Print functionality for Jangad is CRITICAL. Create a specific print layout or @media print CSS to strip all UI chromes, navbars, and buttons, leaving only a crisp, readable slip with signature lines.",
+    "Never center align the app container. Left-align dense content, right-align numbers.",
+    "Install and use Phosphor icons (yarn add @phosphor-icons/react)."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Do not converge toward generic outputs. Use layered design elements with z-index hierarchy.",
+    "Do not apply universal transition (transition-all). Use specific transitions.",
+    "Never center align the App container in CSS (.App { text-align: center; } is banned).",
+    "Use modern button styles (pill or sharp).",
+    "NEVER use emojis as icons.",
+    "Every interaction needs micro-animations.",
+    "Do not use placeholder image URLs. Use the provided image URLs.",
+    "Prioritize reusing existing components from src/components/ui.",
+    "Use sonner for toasts.",
+    "Always add data-testid attributes to interactive and informational elements."
+  ]
+}
