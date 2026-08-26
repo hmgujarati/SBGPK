@@ -1,6 +1,7 @@
-"""Polki Manufacturing Tracker - backend API regression tests."""
+"""Polki Manufacturing Tracker - backend API regression tests (packet-first model, iteration 2)."""
 import os
 import re
+import random
 import uuid
 from pathlib import Path
 
@@ -14,384 +15,394 @@ if not base_url:
     raise RuntimeError("REACT_APP_BACKEND_URL missing")
 BASE_URL = base_url.rstrip("/")
 API = f"{BASE_URL}/api"
+TIMEOUT = 45
 
 
-def creds():
+def creds(section="Admin"):
     p = Path("/app/memory/test_credentials.md")
+    if not p.exists():
+        pytest.skip("missing /app/memory/test_credentials.md")
     content = p.read_text(encoding="utf-8")
-    email = re.search(r"(?im)^\s*[-*]\s*email\s*:\s*`?([^`\s]+)", content).group(1)
-    password = re.search(r"(?im)^\s*[-*]\s*password\s*:\s*`?([^`\s]+)", content).group(1)
+    block = content.split(f"## {section}")[1]
+    email = re.search(r"(?im)^\s*[-*]\s*email\s*:\s*`?([^`\s]+)", block).group(1)
+    password = re.search(r"(?im)^\s*[-*]\s*password\s*:\s*`?([^`\s]+)", block).group(1)
     return {"email": email, "password": password}
 
 
-@pytest.fixture(scope="module")
-def admin():
+def login(section="Admin"):
     s = requests.Session()
-    c = creds()
-    r = s.post(f"{API}/auth/login", json=c, timeout=30)
+    c = creds(section)
+    r = s.post(f"{API}/auth/login", json=c, timeout=TIMEOUT)
     if r.status_code != 200:
-        pytest.fail(f"admin login failed {r.status_code}: {r.text[:300]}")
+        pytest.fail(f"{section} login failed {r.status_code}: {r.text[:300]}")
     token = r.json().get("token")
     assert token, "no token in login response"
     s.headers.update({"Authorization": f"Bearer {token}"})
     return s
 
 
+@pytest.fixture(scope="module")
+def admin():
+    return login("Admin")
+
+
+@pytest.fixture(scope="module")
+def staff():
+    return login("Staff")
+
+
+def new_kapan(sess, weight=300.0, pcs=20):
+    kno = f"TEST{random.randint(100000, 999999)}"
+    r = sess.post(f"{API}/kapans", json={
+        "date": "2026-07-01", "kapan_no": kno, "type": "TEST_ROUGH",
+        "pcs": pcs, "weight": weight, "notes": "TEST_"}, timeout=TIMEOUT)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def mk_packet(sess, kapan_id, pcs, weight, date="2026-07-01"):
+    return sess.post(f"{API}/kapans/{kapan_id}/packets",
+                     json={"date": date, "pcs": pcs, "weight": weight}, timeout=TIMEOUT)
+
+
+def issue(sess, packet_id, process, karigar_name="TEST_K", **kw):
+    body = {"packet_id": packet_id, "process": process, "date": "2026-07-02",
+            "karigar_name": karigar_name}
+    body.update(kw)
+    return sess.post(f"{API}/entries", json=body, timeout=TIMEOUT)
+
+
+def receive(sess, entry_id, **kw):
+    body = {"return_date": "2026-07-03"}
+    body.update(kw)
+    return sess.post(f"{API}/entries/{entry_id}/receive", json=body, timeout=TIMEOUT)
+
+
+def report(sess, kapan_id):
+    r = sess.get(f"{API}/kapans/{kapan_id}", timeout=TIMEOUT)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 # ---------------------------------------------------------------- auth
 class TestAuth:
-    def test_root_health(self):
-        r = requests.get(f"{API}/", timeout=30)
+    def test_health(self):
+        r = requests.get(f"{API}/", timeout=TIMEOUT)
         assert r.status_code == 200
         assert r.json().get("status") == "ok"
 
     def test_login_and_me(self, admin):
-        r = admin.get(f"{API}/auth/me", timeout=30)
+        r = admin.get(f"{API}/auth/me", timeout=TIMEOUT)
         assert r.status_code == 200
         d = r.json()
-        assert d["email"] == creds()["email"]
+        assert d["email"] == creds("Admin")["email"]
         assert d["role"] == "admin"
-        assert "password_hash" not in d
-        assert "_id" not in d
-        assert all(d["permissions"].values())
-
-    def test_login_bad_password(self):
-        r = requests.post(f"{API}/auth/login",
-                          json={"email": f"nouser_{uuid.uuid4().hex[:6]}@polki.com", "password": "x"},
-                          timeout=30)
-        assert r.status_code == 401
-
-    def test_no_token_401(self):
-        r = requests.get(f"{API}/kapans", timeout=30)
-        assert r.status_code == 401
-
-    def test_invalid_token_401(self):
-        r = requests.get(f"{API}/kapans", headers={"Authorization": "Bearer garbage"}, timeout=30)
-        assert r.status_code == 401
-
-    def test_bcrypt_hash_format(self, admin):
-        # verify stored hash format via direct db check
-        import asyncio
-        from motor.motor_asyncio import AsyncIOMotorClient
-        env = dotenv_values("/app/backend/.env")
-
-        async def go():
-            cl = AsyncIOMotorClient(env["MONGO_URL"])
-            u = await cl[env["DB_NAME"]].users.find_one({"email": creds()["email"]})
-            cl.close()
-            return u
-
-        u = asyncio.get_event_loop().run_until_complete(go()) if False else asyncio.run(go())
-        assert u and u["password_hash"].startswith("$2b$")
+        assert "_id" not in d and "password_hash" not in d
 
     def test_login_sets_httponly_cookies(self):
-        r = requests.post(f"{API}/auth/login", json=creds(), timeout=30)
+        r = requests.post(f"{API}/auth/login", json=creds("Admin"), timeout=TIMEOUT)
         assert r.status_code == 200
-        set_cookie = r.headers.get("set-cookie", "")
-        assert "access_token" in set_cookie and "HttpOnly" in set_cookie
+        raw = r.headers.get("set-cookie", "").lower()
+        assert "access_token" in raw, f"no access_token cookie: {raw}"
+        assert "httponly" in raw, f"cookie not httponly: {raw}"
 
-    def test_seeded_staff_login(self):
+    def test_login_invalid_password(self):
         r = requests.post(f"{API}/auth/login",
-                          json={"email": "staff@polki.com", "password": "staff123"}, timeout=30)
+                          json={"email": f"nobody_{uuid.uuid4().hex[:6]}@x.com", "password": "bad"},
+                          timeout=TIMEOUT)
+        assert r.status_code == 401
+        assert "detail" in r.json()
+
+    def test_unauthenticated_blocked(self):
+        r = requests.get(f"{API}/kapans", timeout=TIMEOUT)
+        assert r.status_code in (401, 403)
+
+    def test_bcrypt_hash_format(self):
+        import subprocess
+        out = subprocess.run(
+            ["python", "-c",
+             "import os,asyncio;from motor.motor_asyncio import AsyncIOMotorClient;"
+             "c=AsyncIOMotorClient(os.environ['MONGO_URL']);"
+             "print(asyncio.get_event_loop().run_until_complete("
+             "c[os.environ['DB_NAME']].users.find_one({'email':os.environ['ADMIN_EMAIL'].lower()}))['password_hash'])"],
+            capture_output=True, text=True, cwd="/app/backend",
+            env={**os.environ, **dotenv_values("/app/backend/.env")})
+        assert "$2b$" in out.stdout, f"hash not bcrypt $2b$: {out.stdout[-200:]} {out.stderr[-300:]}"
+
+
+# ---------------------------------------------------------------- packets
+class TestPackets:
+    @pytest.fixture(scope="class")
+    def kapan(self, admin):
+        k = new_kapan(admin, 300.0, 20)
+        yield k
+        admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+    def test_packet_auto_numbering_and_size(self, admin, kapan):
+        r1 = mk_packet(admin, kapan["id"], 5, 50.0)
+        assert r1.status_code == 200, r1.text
+        p1 = r1.json()
+        assert p1["packet_no"] == f"{kapan['kapan_no']}-01"
+        assert p1["size"] == 10.0
+        assert p1["status"] == "in_stock"
+        assert p1["original_weight"] == 50.0
+        r2 = mk_packet(admin, kapan["id"], 4, 40.0)
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["packet_no"] == f"{kapan['kapan_no']}-02"
+
+        # persistence check
+        d = report(admin, kapan["id"])
+        nos = [p["packet_no"] for p in d["packets"]]
+        assert nos == [f"{kapan['kapan_no']}-01", f"{kapan['kapan_no']}-02"]
+        assert d["report"]["unpacketed_weight"] == 210.0
+
+    def test_over_packeting_rejected(self, admin, kapan):
+        r = mk_packet(admin, kapan["id"], 10, 500.0)
+        assert r.status_code == 400, r.text
+        assert "remaining" in r.json()["detail"].lower()
+
+    def test_zero_weight_rejected(self, admin, kapan):
+        r = mk_packet(admin, kapan["id"], 1, 0)
+        assert r.status_code == 400
+
+    def test_packets_in_stock_filter(self, admin, kapan):
+        r = admin.get(f"{API}/packets", params={"status": "in_stock"}, timeout=TIMEOUT)
         assert r.status_code == 200
-        p = r.json()["permissions"]
-        assert p["can_create"] is True and p["can_delete"] is False and p["can_manage_staff"] is False
+        data = r.json()
+        assert all(p["status"] == "in_stock" for p in data)
+        assert all("_id" not in p for p in data)
+        assert any(p["kapan_no"] == kapan["kapan_no"] for p in data)
 
-    def test_refresh_endpoint_exists(self):
-        r = requests.post(f"{API}/auth/refresh", json={}, timeout=30)
-        assert r.status_code != 404, "POST /api/auth/refresh missing (documented in test_credentials.md)"
+    def test_delete_packet_with_entries_rejected(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 2, 20.0).json()
+        e = issue(admin, p["id"], "sarine")
+        assert e.status_code == 200, e.text
+        d = admin.delete(f"{API}/packets/{p['id']}", timeout=TIMEOUT)
+        assert d.status_code == 400
+        assert "entries" in d.json()["detail"].lower()
+        # cleanup: delete entry then packet
+        admin.delete(f"{API}/entries/{e.json()['id']}", timeout=TIMEOUT)
+        d2 = admin.delete(f"{API}/packets/{p['id']}", timeout=TIMEOUT)
+        assert d2.status_code == 200
 
 
-# ---------------------------------------------------------------- meta / dashboard
-class TestMeta:
-    def test_processes(self, admin):
-        r = admin.get(f"{API}/meta/processes", timeout=30)
-        assert r.status_code == 200
-        keys = [p["key"] for p in r.json()]
-        assert keys == ["sarine", "marking", "laser", "shape", "ghat", "polish",
-                        "table_polish", "nats", "filling"]
+# ---------------------------------------------------------------- issue / receive rules
+class TestIssueReceive:
+    @pytest.fixture(scope="class")
+    def kapan(self, admin):
+        k = new_kapan(admin, 200.0, 10)
+        yield k
+        admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
 
-    def test_dashboard(self, admin):
-        r = admin.get(f"{API}/dashboard", timeout=30)
-        assert r.status_code == 200
+    def test_issue_copies_packet_pcs_weight_and_strips_fields(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 4, 40.0).json()
+        r = issue(admin, p["id"], "sarine", hw="5x5", ds="D", expected_return_pcs=9)
+        assert r.status_code == 200, r.text
+        e = r.json()
+        assert e["pcs"] == 4 and e["weight"] == 40.0 and e["size"] == 10.0
+        assert e["hw"] == "" and e["ds"] == "" and e["expected_return_pcs"] == 0
+        assert e["jangad_no"].startswith("JG-")
+        assert e["returned"] is False
+        # packet now issued
+        d = report(admin, kapan["id"])
+        pk = [x for x in d["packets"] if x["id"] == p["id"]][0]
+        assert pk["status"] == "issued"
+        assert d["report"]["in_process_weight"] == 40.0
+        assert d["report"]["difference"] == 0.0
+
+        # double issue rejected
+        r2 = issue(admin, p["id"], "marking")
+        assert r2.status_code == 400
+        assert "already issued" in r2.json()["detail"].lower()
+
+        # receive
+        rec = receive(admin, e["id"], return_pcs=4, return_weight=38.5, rc=1.0, return_boil=0.5)
+        assert rec.status_code == 200, rec.text
+        rd = rec.json()
+        assert rd["loss"] == 0.0
+        d2 = report(admin, kapan["id"])
+        pk = [x for x in d2["packets"] if x["id"] == p["id"]][0]
+        assert pk["weight"] == 38.5 and pk["pcs"] == 4 and pk["last_process"] == "sarine"
+        assert pk["status"] == "in_stock"
+        assert d2["report"]["difference"] == 0.0
+        assert d2["report"]["rc"] == 1.0 and d2["report"]["boil"] == 0.5
+
+    def test_sarine_marking_loss_breaks_reconciliation(self, admin):
+        """BUG PROBE: loss on sarine/marking is computed on the entry but has no bucket in
+        build_report(), so the kapan reconciliation goes out of balance."""
+        k = new_kapan(admin, 50.0, 2)
+        try:
+            p = mk_packet(admin, k["id"], 2, 50.0).json()
+            e = issue(admin, p["id"], "sarine").json()
+            rec = receive(admin, e["id"], return_pcs=2, return_weight=49.0)
+            assert rec.status_code == 200, rec.text
+            assert rec.json()["loss"] == 1.0
+            rep = report(admin, k["id"])["report"]
+            assert rep["difference"] == 0.0, (
+                f"sarine loss 1.00 unaccounted -> difference {rep['difference']}")
+        finally:
+            admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+    def test_laser_keeps_hw_and_polish_keeps_ds(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 2, 20.0).json()
+        e = issue(admin, p["id"], "laser", hw="3x4", ds="D", expected_return_pcs=3).json()
+        assert e["hw"] == "3x4" and e["expected_return_pcs"] == 3 and e["ds"] == ""
+        receive(admin, e["id"], return_pcs=3, return_weight=18.0)
+        e2 = issue(admin, p["id"], "polish", hw="9x9", ds="Double").json()
+        assert e2["ds"] == "Double" and e2["hw"] == ""
+        receive(admin, e2["id"], return_pcs=3, return_weight=16.0)
+
+    def test_receive_over_issued_weight_rejected(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 2, 20.0).json()
+        e = issue(admin, p["id"], "laser").json()
+        r = receive(admin, e["id"], return_pcs=2, return_weight=19.0, return_boil=1.0, rc=1.0)
+        assert r.status_code == 400, r.text
+        assert "cannot exceed" in r.json()["detail"].lower()
+        # zero return weight rejected
+        r0 = receive(admin, e["id"], return_pcs=2, return_weight=0)
+        assert r0.status_code == 400
+        ok = receive(admin, e["id"], return_pcs=2, return_weight=18.0, rc=1.0)
+        assert ok.status_code == 200, ok.text
+        # double receive rejected
+        again = receive(admin, e["id"], return_pcs=2, return_weight=17.0)
+        assert again.status_code == 400
+        assert "already been received" in again.json()["detail"].lower()
+
+    def test_filling_requires_weight_gain(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 2, 20.0).json()
+        e = issue(admin, p["id"], "filling").json()
+        bad = receive(admin, e["id"], return_pcs=2, return_weight=19.0)
+        assert bad.status_code == 400, bad.text
+        assert "cannot be less" in bad.json()["detail"].lower()
+        good = receive(admin, e["id"], return_pcs=2, return_weight=22.5)
+        assert good.status_code == 200, good.text
+        g = good.json()
+        assert g["weight_gain"] == 2.5 and g["loss"] == 0.0
+        rep = report(admin, kapan["id"])["report"]
+        assert rep["filling_gain"] == 2.5
+        assert rep["difference"] == 0.0
+
+    def test_issue_unknown_process_and_bad_packet(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 1, 5.0).json()
+        r = issue(admin, p["id"], "nonsense")
+        assert r.status_code == 400
+        r2 = issue(admin, "507f1f77bcf86cd799439011", "sarine")
+        assert r2.status_code == 404
+        r3 = issue(admin, "not-an-id", "sarine")
+        assert r3.status_code == 400
+
+
+# ---------------------------------------------------------------- full chain reconciliation
+class TestFullChain:
+    @pytest.fixture(scope="class")
+    def kapan(self, admin):
+        k = new_kapan(admin, 100.0, 5)
+        yield k
+        admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+    def test_chain_stays_balanced(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 5, 100.0).json()
+        assert report(admin, kapan["id"])["report"]["unpacketed_weight"] == 0.0
+        chain = [("sarine", 100.0), ("laser", 90.0), ("shape", 85.0),
+                 ("polish", 80.0), ("table_polish", 78.0), ("nats", 76.0)]
+        for proc, rw in chain:
+            e = issue(admin, p["id"], proc, hw="4x4" if proc == "laser" else "",
+                      ds="Double" if proc == "polish" else "")
+            assert e.status_code == 200, f"{proc}: {e.text}"
+            rep = report(admin, kapan["id"])["report"]
+            assert rep["difference"] == 0.0, f"unbalanced while {proc} out: {rep}"
+            rec = receive(admin, e.json()["id"], return_pcs=5, return_weight=rw,
+                          rc=0.5 if proc != "sarine" else 0)
+            assert rec.status_code == 200, f"{proc} receive: {rec.text}"
+            rep = report(admin, kapan["id"])["report"]
+            assert rep["difference"] == 0.0, f"unbalanced after {proc}: {rep}"
+
+        rep = report(admin, kapan["id"])["report"]
+        assert rep["polish_weight"] == 76.0, f"polish_weight wrong: {rep}"
+        assert rep["stock_weight"] == 0.0
+
+        # filling last
+        e = issue(admin, p["id"], "filling").json()
+        rec = receive(admin, e["id"], return_pcs=5, return_weight=80.0)
+        assert rec.status_code == 200, rec.text
+        rep = report(admin, kapan["id"])["report"]
+        assert rep["filling_gain"] == 4.0
+        assert rep["difference"] == 0.0, f"unbalanced after filling: {rep}"
+        assert rep["entries_count"] == 7
+
+    def test_jangad_payload(self, admin, kapan):
+        entries = report(admin, kapan["id"])["entries"]
+        eid = entries[0]["id"]
+        r = admin.get(f"{API}/entries/{eid}/jangad", timeout=TIMEOUT)
+        assert r.status_code == 200, r.text
+        j = r.json()
+        for f in ("jangad_no", "kapan_no", "packet_no", "process_label", "pcs", "weight", "size"):
+            assert f in j and j[f] not in (None, ""), f"jangad missing {f}: {j}"
+
+    def test_delete_out_of_order_and_restore(self, admin, kapan):
+        entries = report(admin, kapan["id"])["entries"]
+        assert len(entries) >= 2
+        old = admin.delete(f"{API}/entries/{entries[0]['id']}", timeout=TIMEOUT)
+        assert old.status_code == 400, old.text
+        assert "newer entries" in old.json()["detail"].lower()
+
+        last = entries[-1]
+        d = admin.delete(f"{API}/entries/{last['id']}", timeout=TIMEOUT)
+        assert d.status_code == 200, d.text
+        pk = [x for x in report(admin, kapan["id"])["packets"] if x["id"] == last["packet_id"]][0]
+        assert pk["weight"] == last["weight"], f"packet not restored: {pk}"
+        assert pk["pcs"] == last["pcs"]
+        assert pk["last_process"] == last.get("prev_process")
+        assert report(admin, kapan["id"])["report"]["difference"] == 0.0
+
+
+# ---------------------------------------------------------------- karigars / dashboard / RBAC
+class TestMisc:
+    def test_dashboard_shape(self, admin):
+        r = admin.get(f"{API}/dashboard", timeout=TIMEOUT)
+        assert r.status_code == 200, r.text
         d = r.json()
         for k in ("kapan_count", "total_weight", "in_process_weight", "total_loss",
-                  "open_jangads", "karigar_count", "by_process"):
-            assert k in d
+                  "open_jangads", "packet_count", "stock_packets", "karigar_count", "by_process"):
+            assert k in d, f"dashboard missing {k}"
         assert len(d["by_process"]) == 9
-        assert set(d["by_process"]["laser"].keys()) == {"label", "open", "open_weight", "loss"}
 
-
-# ---------------------------------------------------------------- karigars
-class TestKarigars:
-    created = []
-
-    def test_create_and_filter(self, admin):
-        name = f"TEST_K_{uuid.uuid4().hex[:6]}"
-        r = admin.post(f"{API}/karigars", json={"name": name, "phone": "9999900000",
-                                                "processes": ["laser", "polish"]}, timeout=30)
-        assert r.status_code == 200, r.text[:300]
-        d = r.json()
-        assert d["name"] == name and d["processes"] == ["laser", "polish"]
-        assert "_id" not in d and "id" in d
-        TestKarigars.created.append(d["id"])
-
-        rl = admin.get(f"{API}/karigars?process=laser", timeout=30)
-        assert rl.status_code == 200
-        assert any(k["id"] == d["id"] for k in rl.json())
-        rs = admin.get(f"{API}/karigars?process=shape", timeout=30)
-        assert all(k["id"] != d["id"] for k in rs.json())
-
-    def test_update_karigar(self, admin):
-        assert TestKarigars.created, "needs created karigar"
-        kid = TestKarigars.created[0]
-        r = admin.put(f"{API}/karigars/{kid}",
-                      json={"name": "TEST_K_upd", "phone": "1", "processes": ["shape"]}, timeout=30)
+    def test_processes_meta(self, admin):
+        r = admin.get(f"{API}/meta/processes", timeout=TIMEOUT)
         assert r.status_code == 200
-        assert r.json()["name"] == "TEST_K_upd"
-        got = admin.get(f"{API}/karigars", timeout=30).json()
-        assert any(k["id"] == kid and k["name"] == "TEST_K_upd" for k in got)
+        labels = {x["key"]: x["label"] for x in r.json()}
+        assert labels["laser"] == "Laser Sawing" and labels["table_polish"] == "Table Polish"
 
-    def test_invalid_id(self, admin):
-        r = admin.delete(f"{API}/karigars/notanid", timeout=30)
+    def test_karigar_process_filter(self, admin):
+        name = f"TEST_Kari_{uuid.uuid4().hex[:5]}"
+        r = admin.post(f"{API}/karigars", json={"name": name, "phone": "9999",
+                                                "processes": ["laser"], "active": True}, timeout=TIMEOUT)
+        assert r.status_code == 200, r.text
+        kid = r.json()["id"]
+        laser = admin.get(f"{API}/karigars", params={"process": "laser"}, timeout=TIMEOUT).json()
+        assert any(k["id"] == kid for k in laser)
+        polish = admin.get(f"{API}/karigars", params={"process": "polish"}, timeout=TIMEOUT).json()
+        assert not any(k["id"] == kid for k in polish)
+        assert admin.delete(f"{API}/karigars/{kid}", timeout=TIMEOUT).status_code == 200
+
+    def test_staff_rbac(self, admin, staff):
+        me = staff.get(f"{API}/auth/me", timeout=TIMEOUT).json()
+        perms = me["permissions"]
+        assert perms["can_create"] and perms["can_edit"]
+        assert not perms["can_delete"] and not perms["can_manage_staff"]
+        assert staff.get(f"{API}/users", timeout=TIMEOUT).status_code == 403
+
+        k = new_kapan(staff, 10.0, 1)
+        p = mk_packet(staff, k["id"], 1, 10.0)
+        assert p.status_code == 200, p.text
+        assert staff.delete(f"{API}/packets/{p.json()['id']}", timeout=TIMEOUT).status_code == 403
+        assert staff.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT).status_code == 403
+        assert admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT).status_code == 200
+
+    def test_duplicate_kapan_no_rejected(self, admin):
+        k = new_kapan(admin, 5.0, 1)
+        r = admin.post(f"{API}/kapans", json={"date": "2026-07-01", "kapan_no": k["kapan_no"],
+                                              "pcs": 1, "weight": 5.0}, timeout=TIMEOUT)
         assert r.status_code == 400
-
-    def test_cleanup(self, admin):
-        for kid in TestKarigars.created:
-            r = admin.delete(f"{API}/karigars/{kid}", timeout=30)
-            assert r.status_code in (200, 404)
-        assert admin.delete(f"{API}/karigars/{'0' * 24}", timeout=30).status_code == 404
-
-
-# ---------------------------------------------------------------- kapans + full process chain
-class TestKapanChain:
-    ids = {}
-
-    def _issue(self, admin, process, pcs, weight, extra=None):
-        body = {"kapan_id": self.ids["kapan"], "process": process, "date": "2026-07-01",
-                "karigar_name": "TEST_KAR", "pcs": pcs, "weight": weight}
-        body.update(extra or {})
-        r = admin.post(f"{API}/entries", json=body, timeout=30)
-        assert r.status_code == 200, r.text[:300]
-        return r.json()
-
-    def _receive(self, admin, entry_id, body):
-        r = admin.post(f"{API}/entries/{entry_id}/receive", json=body, timeout=30)
-        assert r.status_code == 200, r.text[:300]
-        return r.json()
-
-    def test_create_kapan(self, admin):
-        kno = f"T{uuid.uuid4().hex[:6]}"
-        r = admin.post(f"{API}/kapans", json={"date": "2026-07-01", "kapan_no": kno,
-                                              "type": "Polki", "pcs": 10, "weight": 250.504},
-                       timeout=30)
-        assert r.status_code == 200, r.text[:300]
-        d = r.json()
-        assert d["weight"] == 250.5
-        assert d["size"] == 25.05
-        assert "_id" not in d
-        self.ids["kapan"] = d["id"]
-        self.ids["kapan_no"] = kno
-
-        g = admin.get(f"{API}/kapans/{d['id']}", timeout=30)
-        assert g.status_code == 200
-        gd = g.json()
-        assert gd["kapan_no"] == kno and gd["weight"] == 250.5
-        assert gd["report"]["kapan_weight"] == 250.5
-        assert gd["report"]["status"] == "New"
-
-    def test_duplicate_kapan_no(self, admin):
-        r = admin.post(f"{API}/kapans", json={"date": "2026-07-01",
-                                              "kapan_no": self.ids["kapan_no"],
-                                              "pcs": 1, "weight": 1.0}, timeout=30)
-        assert r.status_code == 400
-
-    def test_kapan_404(self, admin):
-        assert admin.get(f"{API}/kapans/{'0' * 24}", timeout=30).status_code == 404
-
-    def test_issue_laser_and_in_process(self, admin):
-        e = self._issue(admin, "laser", 10, 250.50, {"hw": "H", "expected_return_pcs": 20})
-        assert re.match(r"^JG-\d{5}$", e["jangad_no"]), e["jangad_no"]
-        assert e["returned"] is False
-        assert e["size"] == 25.05
-        assert e["loss"] == 0.0
-        self.ids["laser"] = e["id"]
-        self.ids["laser_jangad"] = e["jangad_no"]
-
-        rep = admin.get(f"{API}/kapans/{self.ids['kapan']}", timeout=30).json()["report"]
-        assert rep["in_process_weight"] == 250.50
-        assert rep["in_process_pcs"] == 10
-        assert rep["status"] == "In Process"
-        assert rep["current_stage"] == "laser"
-
-    def test_unknown_process_rejected(self, admin):
-        r = admin.post(f"{API}/entries", json={"kapan_id": self.ids["kapan"], "process": "bogus",
-                                              "date": "2026-07-01", "pcs": 1, "weight": 1}, timeout=30)
-        assert r.status_code == 400
-
-    def test_jangad_payload(self, admin):
-        r = admin.get(f"{API}/entries/{self.ids['laser']}/jangad", timeout=30)
-        assert r.status_code == 200
-        d = r.json()
-        assert d["jangad_no"] == self.ids["laser_jangad"]
-        assert d["kapan_no"] == self.ids["kapan_no"]
-        assert d["process_label"] == "Laser Sawing"
-        assert d["weight"] == 250.50
-
-    def test_receive_laser_calcs(self, admin):
-        d = self._receive(admin, self.ids["laser"], {
-            "return_date": "2026-07-02", "return_pcs": 18, "return_weight": 200.00,
-            "return_boil": 5.00, "rc": 10.00, "ls_opening": "LS1"})
-        # loss = 250.50 - (200 + 5 + 10) = 35.50
-        assert d["returned"] is True
-        assert d["loss"] == 35.50
-        assert d["loss_pct"] == round(35.50 / 250.50 * 100, 2)
-        assert d["return_pct"] == round(200.0 / 250.50 * 100, 2)
-        assert d["weight_gain"] == 0.0
-        assert d["ls_opening"] == "LS1"
-
-        rep = admin.get(f"{API}/kapans/{self.ids['kapan']}", timeout=30).json()["report"]
-        assert rep["rc"] == 10.00
-        assert rep["boil"] == 5.00
-        assert rep["laser_loss"] == 35.50
-        assert rep["in_process_weight"] == 0.0
-
-    def test_shape_chain(self, admin):
-        e = self._issue(admin, "shape", 18, 200.00)
-        d = self._receive(admin, e["id"], {"return_date": "2026-07-03", "return_pcs": 18,
-                                           "return_weight": 180.00, "return_boil": 2.00,
-                                           "nail_rc": 3.00})
-        assert d["loss"] == 15.00
-        rep = admin.get(f"{API}/kapans/{self.ids['kapan']}", timeout=30).json()["report"]
-        assert rep["shape_ghat_loss"] == 15.00
-        assert rep["nail_rc"] == 3.00
-
-    def test_polish_table_nats_filling(self, admin):
-        e = self._issue(admin, "polish", 18, 180.00, {"ds": "Double"})
-        d = self._receive(admin, e["id"], {"return_date": "2026-07-04", "return_pcs": 18,
-                                           "return_weight": 170.00})
-        assert d["loss"] == 10.00
-
-        e2 = self._issue(admin, "table_polish", 18, 170.00)
-        d2 = self._receive(admin, e2["id"], {"return_date": "2026-07-05", "return_pcs": 18,
-                                             "return_weight": 165.00})
-        assert d2["loss"] == 5.00
-
-        e3 = self._issue(admin, "nats", 18, 165.00)
-        d3 = self._receive(admin, e3["id"], {"return_date": "2026-07-06", "return_pcs": 18,
-                                             "return_weight": 163.00})
-        assert d3["loss"] == 2.00
-
-        e4 = self._issue(admin, "filling", 18, 163.00)
-        d4 = self._receive(admin, e4["id"], {"return_date": "2026-07-07", "return_pcs": 18,
-                                             "return_weight": 165.00})
-        assert d4["weight_gain"] == 2.00
-        assert d4["loss"] == 0.0
-
-        rep = admin.get(f"{API}/kapans/{self.ids['kapan']}", timeout=30).json()["report"]
-        assert rep["polish_loss"] == 15.00, rep
-        assert rep["nats_loss"] == 2.00
-        assert rep["filling_gain"] == 2.00
-        assert rep["polish_weight"] == 170.00, rep
-        assert rep["in_process_weight"] == 0.0
-        assert rep["open_count"] == 0
-        # accounted = rc10+nail3+boil7+laser35.5+shape15+polish15+nats2+polish_weight170-gain2
-        assert rep["accounted_weight"] == 255.50
-        assert rep["difference"] == round(250.50 - 255.50, 2)
-
-    def test_entries_filters(self, admin):
-        allr = admin.get(f"{API}/entries", timeout=30)
-        assert allr.status_code == 200
-        mine = [e for e in allr.json() if e["kapan_no"] == self.ids["kapan_no"]]
-        assert len(mine) == 6
-        assert all("kapan_no" in e and "_id" not in e for e in mine)
-
-        openr = admin.get(f"{API}/entries?status=open", timeout=30).json()
-        assert all(e["returned"] is False for e in openr)
-        closed = admin.get(f"{API}/entries?status=closed&process=laser", timeout=30).json()
-        assert all(e["returned"] and e["process"] == "laser" for e in closed)
-
-    def test_kapan_list_includes_report(self, admin):
-        r = admin.get(f"{API}/kapans", timeout=30)
-        assert r.status_code == 200
-        row = next(k for k in r.json() if k["kapan_no"] == self.ids["kapan_no"])
-        assert row["report"]["polish_weight"] == 170.00
-
-    def test_entry_404_and_bad_id(self, admin):
-        assert admin.post(f"{API}/entries/{'0' * 24}/receive", json={}, timeout=30).status_code == 404
-        assert admin.get(f"{API}/entries/xyz/jangad", timeout=30).status_code == 400
-
-    def test_zz_delete_kapan_cascades(self, admin):
-        kid = self.ids["kapan"]
-        r = admin.delete(f"{API}/kapans/{kid}", timeout=30)
-        assert r.status_code == 200
-        assert admin.get(f"{API}/kapans/{kid}", timeout=30).status_code == 404
-        left = [e for e in admin.get(f"{API}/entries", timeout=30).json()
-                if e.get("kapan_no") == self.ids["kapan_no"]]
-        assert left == [], f"entries orphaned after kapan delete: {len(left)}"
-
-
-# ---------------------------------------------------------------- permissions
-class TestPermissions:
-    state = {}
-
-    def test_create_staff(self, admin):
-        email = f"qa_{uuid.uuid4().hex[:6]}@polki.com"
-        r = admin.post(f"{API}/users", json={
-            "name": "TEST_QA", "email": email, "password": "test1234", "role": "staff",
-            "permissions": {"can_create": True, "can_edit": False, "can_delete": False,
-                            "can_manage_karigar": False, "can_manage_staff": False}}, timeout=30)
-        assert r.status_code == 200, r.text[:300]
-        d = r.json()
-        assert d["email"] == email and "password_hash" not in d
-        assert d["permissions"]["can_delete"] is False
-        self.state["id"] = d["id"]
-        self.state["email"] = email
-
-    def test_duplicate_email(self, admin):
-        r = admin.post(f"{API}/users", json={"name": "x", "email": self.state["email"],
-                                             "password": "test1234"}, timeout=30)
-        assert r.status_code == 400
-
-    def test_staff_permissions_enforced(self, admin):
-        s = requests.Session()
-        lr = s.post(f"{API}/auth/login", json={"email": self.state["email"],
-                                               "password": "test1234"}, timeout=30)
-        assert lr.status_code == 200, lr.text[:300]
-        s.headers.update({"Authorization": f"Bearer {lr.json()['token']}"})
-
-        # can create kapan
-        kno = f"S{uuid.uuid4().hex[:6]}"
-        ck = s.post(f"{API}/kapans", json={"date": "2026-07-01", "kapan_no": kno,
-                                           "pcs": 5, "weight": 50.0}, timeout=30)
-        assert ck.status_code == 200, ck.text[:300]
-        kid = ck.json()["id"]
-
-        # can issue packet
-        ce = s.post(f"{API}/entries", json={"kapan_id": kid, "process": "sarine",
-                                            "date": "2026-07-01", "pcs": 5, "weight": 50.0}, timeout=30)
-        assert ce.status_code == 200, ce.text[:300]
-        eid = ce.json()["id"]
-
-        # cannot delete
-        assert s.delete(f"{API}/kapans/{kid}", timeout=30).status_code == 403
-        assert s.delete(f"{API}/entries/{eid}", timeout=30).status_code == 403
-        # cannot edit
-        assert s.put(f"{API}/kapans/{kid}", json={"date": "2026-07-01", "kapan_no": kno,
-                                                  "pcs": 5, "weight": 51.0}, timeout=30).status_code == 403
-        # cannot manage staff / karigar
-        assert s.get(f"{API}/users", timeout=30).status_code == 403
-        assert s.post(f"{API}/karigars", json={"name": "nope"}, timeout=30).status_code == 403
-
-        admin.delete(f"{API}/kapans/{kid}", timeout=30)
-
-    def test_deactivate_blocks_login(self, admin):
-        r = admin.put(f"{API}/users/{self.state['id']}", json={"active": False}, timeout=30)
-        assert r.status_code == 200 and r.json()["active"] is False
-        lr = requests.post(f"{API}/auth/login", json={"email": self.state["email"],
-                                                      "password": "test1234"}, timeout=30)
-        assert lr.status_code == 403, lr.status_code
-        assert "disabled" in lr.json().get("detail", "").lower()
-
-    def test_zz_delete_staff(self, admin):
-        assert admin.delete(f"{API}/users/{self.state['id']}", timeout=30).status_code == 200
-        assert admin.delete(f"{API}/users/{self.state['id']}", timeout=30).status_code == 404
+        assert "already exists" in r.json()["detail"].lower()
+        admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)

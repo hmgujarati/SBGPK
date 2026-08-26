@@ -39,6 +39,18 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
     [entry, process, v]
   );
 
+  const issued = Number(entry?.weight || 0);
+  const accounted =
+    Number(v.return_weight || 0) + Number(v.return_boil || 0) + Number(v.rc || 0) + Number(v.nail_rc || 0);
+  const invalid =
+    process === "filling"
+      ? Number(v.return_weight || 0) > 0 && Number(v.return_weight) < issued - 0.001
+      : accounted > issued + 0.001;
+  const warning =
+    process === "filling"
+      ? `Filling adds weight — return weight cannot be less than ${issued.toFixed(2)} cts`
+      : `Return + Boil + RC (${accounted.toFixed(2)}) cannot exceed issued ${issued.toFixed(2)} cts`;
+
   const submit = async () => {
     setBusy(true);
     try {
@@ -72,8 +84,9 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-3 gap-2 border border-black/10 bg-zinc-50 p-3 text-xs">
+        <div className="grid grid-cols-2 gap-2 border border-black/10 bg-zinc-50 p-3 text-xs sm:grid-cols-4">
           <div><span className="text-zinc-500">Kapan</span><div className="font-semibold tabular-nums">{entry.kapan_no}</div></div>
+          <div><span className="text-zinc-500">Packet</span><div className="font-semibold tabular-nums">{entry.packet_no}</div></div>
           <div><span className="text-zinc-500">Issued Pcs</span><div className="font-semibold tabular-nums">{entry.pcs}</div></div>
           <div><span className="text-zinc-500">Issued Wt</span><div className="font-semibold tabular-nums">{ct(entry.weight)} ct</div></div>
         </div>
@@ -98,6 +111,12 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
             </Field>
           ))}
         </div>
+
+        {invalid && (
+          <p data-testid="receive-warning" className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-[#DC2626]">
+            {warning}
+          </p>
+        )}
 
         <div className="grid grid-cols-3 gap-2 border border-[#B4975A]/40 bg-[#B4975A]/5 p-3 text-xs">
           {process === "filling" ? (
@@ -124,7 +143,8 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
         </div>
 
         <DialogFooter>
-          <Button data-testid="receive-submit-button" onClick={submit} disabled={busy}
+          <Button data-testid="receive-submit-button" onClick={submit}
+            disabled={busy || invalid || !Number(v.return_weight || 0)}
             className="h-10 rounded-none bg-zinc-900 text-xs font-semibold uppercase tracking-widest">
             {busy ? "Saving…" : "Confirm Receive"}
           </Button>

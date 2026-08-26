@@ -23,6 +23,7 @@ export default function Dashboard() {
         <Stat testid="stat-in-process" label="In Process" value={ct(d.in_process_weight)} unit="cts" tone="accent" />
         <Stat testid="stat-total-loss" label="Total Loss" value={ct(d.total_loss)} unit="cts" tone="warn" />
         <Stat testid="stat-open-jangads" label="Open Jangads" value={d.open_jangads ?? "—"} />
+        <Stat testid="stat-packets" label="Packets" value={d.packet_count ?? "—"} />
         <Stat testid="stat-karigars" label="Karigars" value={d.karigar_count ?? "—"} />
       </div>
 

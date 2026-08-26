@@ -75,14 +75,20 @@ class KapanCreate(BaseModel):
     notes: Optional[str] = ""
 
 
+class PacketCreate(BaseModel):
+    date: str
+    pcs: int = 0
+    weight: float = 0.0
+    packet_no: Optional[str] = None
+    notes: Optional[str] = ""
+
+
 class EntryCreate(BaseModel):
-    kapan_id: str
+    packet_id: str
     process: str
     date: str
     karigar_id: Optional[str] = None
     karigar_name: str = ""
-    pcs: int = 0
-    weight: float = 0.0
     hw: Optional[str] = ""
     ds: Optional[str] = ""
     expected_return_pcs: Optional[int] = 0
@@ -100,7 +106,10 @@ class EntryReturn(BaseModel):
     notes: Optional[str] = ""
 
 
-class EntryUpdate(EntryCreate, EntryReturn):
-    kapan_id: Optional[str] = None
-    process: Optional[str] = None
+class EntryUpdate(EntryReturn):
     date: Optional[str] = None
+    karigar_id: Optional[str] = None
+    karigar_name: Optional[str] = None
+    hw: Optional[str] = None
+    ds: Optional[str] = None
+    expected_return_pcs: Optional[int] = None

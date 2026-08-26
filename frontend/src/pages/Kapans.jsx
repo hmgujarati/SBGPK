@@ -183,8 +183,8 @@ export default function Kapans() {
           <table className="w-full min-w-[1080px] border-collapse text-xs">
             <thead>
               <tr className="bg-zinc-900 text-white">
-                {["Date", "Kapan No", "Type", "Pcs", "Weight", "Size", "Stage", "RC", "Nail RC", "Laser Loss", "Shape/Ghat", "Polish Loss", "Polish Wt", "In Process", "Diff", ""].map((h, i) => (
-                  <th key={h + i} className={`border-r border-white/10 px-2.5 py-2.5 font-semibold uppercase tracking-wider ${i >= 3 && i !== 6 ? "text-right" : "text-left"}`}>
+                {["Date", "Kapan No", "Type", "Pcs", "Weight", "Size", "Pkts", "Stage", "RC", "Nail RC", "Laser Loss", "Shape/Ghat", "Polish Loss", "Polish Wt", "In Process", "Diff", ""].map((h, i) => (
+                  <th key={h + i} className={`border-r border-white/10 px-2.5 py-2.5 font-semibold uppercase tracking-wider ${i >= 3 && i !== 7 ? "text-right" : "text-left"}`}>
                     {h}
                   </th>
                 ))}
@@ -206,6 +206,7 @@ export default function Kapans() {
                     <td className="border-r border-black/5 px-2.5 py-2 text-right tabular-nums">{r.pcs}</td>
                     <td className="border-r border-black/5 px-2.5 py-2 text-right font-semibold tabular-nums">{ct(r.weight)}</td>
                     <td className="border-r border-black/5 px-2.5 py-2 text-right tabular-nums text-zinc-500">{ct(r.size)}</td>
+                    <td className="border-r border-black/5 px-2.5 py-2 text-right tabular-nums">{p.packet_count ?? 0}</td>
                     <td className="border-r border-black/5 px-2.5 py-2">
                       <span className="border border-black/10 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
                         {p.current_stage_label || "New"}
@@ -235,7 +236,7 @@ export default function Kapans() {
               <tr className="bg-zinc-100 font-semibold" data-testid="kapan-totals-row">
                 <td className="px-2.5 py-2.5 uppercase tracking-wider" colSpan={4}>Total ({filtered.length})</td>
                 <td className="px-2.5 py-2.5 text-right tabular-nums">{ct(totals.weight)}</td>
-                <td colSpan={2} />
+                <td colSpan={3} />
                 <td className="px-2.5 py-2.5 text-right tabular-nums">{ct(totals.rc)}</td>
                 <td className="px-2.5 py-2.5 text-right tabular-nums">{ct(totals.nail)}</td>
                 <td className="px-2.5 py-2.5 text-right tabular-nums">{ct(totals.laser)}</td>

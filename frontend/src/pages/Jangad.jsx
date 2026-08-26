@@ -49,6 +49,7 @@ export default function Jangad() {
         <div className="mt-4 grid grid-cols-2 gap-x-8">
           <div>
             <Row label="Kapan No" value={e.kapan_no} />
+            <Row label="Packet No" value={e.packet_no} />
             <Row label="Type" value={e.kapan_type || "—"} />
             <Row label="Process" value={e.process_label} />
             <Row label="Karigar" value={e.karigar_name || "—"} />

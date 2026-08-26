@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 2 full-stack test of the reworked packet-first model. Backend: rewrote /app/backend/tests/backend_test.py for the new API (25 pytest cases, 24 pass). Verified auth (login/me/httpOnly cookies/bcrypt $2b$/401 on bad creds/401 unauth), packet auto-numbering ({kapan_no}-01/-02), remaining-weight guard, in_stock filter, issue copies pcs/weight from packet + strips hw/exp for non-laser and ds for non-polish, duplicate-issue rejection, receive over-issued rejection, double-receive rejection, filling gain rule, full 7-process chain reconciliation, jangad payload, delete-entry restore + out-of-order block, delete-packet-with-entries block, karigar process filter, dashboard, staff RBAC 403s, duplicate kapan_no. Frontend (Playwright, desktop 1920 + mobile 390): login, dashboard stats, kapan creation, Packets-default tab with NO 'All' tab, packet dialog (remaining hint, auto size, auto packet no), over-packet 400 toast, row Issue dialog (read-only pcs/wt/size, packet select disabled, per-process field reveal, karigar filtered by process), issued status + In Process stat, issued packet removed from select, receive over-sum inline warning + disabled Confirm, valid receive updating Cur Wt/Cur Pcs/Last Process/status, RC + Laser Loss buckets, BALANCED bar, Filling less-weight warning + gain flow (Gain column + Weight Gain block), per-process tabs with # restarting at 1, Packet Issue page cross-kapan select, Packet Receive page listing only OUT jangads, Jangad print slip + Print button, jangad delete restore + 'Delete the newer entries' block, packet delete block, staff RBAC UI (no Staff nav, no trash buttons, 403 on DELETE), mobile hamburger/table h-scroll/dialogs. Test kapans and TEST_ karigars cleaned up (only pre-existing kapan 101.35 remains).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/entries/{id}/receive + GET /api/kapans/{id} (build_report)", "issue": "Loss recorded on Sarine or Marking has no bucket in build_report(). compute_entry() computes loss for every non-filling process, but build_report only maps laser/shape/ghat/polish/table_polish/nats. Repro: kapan 50.00 -> packet 50.00 -> issue Sarine -> receive return_weight 49.00 => entry.loss = 1.00 but report difference = 1.00 and balance bar shows 'Unaccounted 1.00 ct'. Either reject/zero weight loss on sarine/marking at receive time, or add an 'other_loss' bucket to the reconciliation identity and to the Kapan detail UI.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "All date fields (kapan / packet / issue / receive dialogs)", "issues": ["Native browser <input type=date> pickers are used instead of the shadcn Calendar component; consistent across the app but not the shadcn look-and-feel"]},
+      {"screen": "Kapan detail", "issues": ["Reconciliation has no visual bucket for Sarine/Marking loss, so once such a loss exists the balance bar shows an unexplainable 'Unaccounted' amount"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Account for Sarine/Marking loss: either block weight loss for these processes at receive (and warn in ReceiveDialog) or add an other_loss bucket to build_report + Kapan detail stats so difference stays 0.00"
+  ],
+  "critical_code_review_comments": [
+    "build_report() loss mapping is incomplete vs compute_entry(): sarine/marking losses silently break the reconciliation identity. Drive the bucket mapping from one shared PROCESS->bucket dict so a new process can never fall through.",
+    "IssueDialog keeps form.packet_id after the dialog is closed with fixedPacketId cleared; opening a generic Issue dialog later can show a stale pre-selection. Reset packet_id when open flips to false.",
+    "receive_entry() writes the whole mutated entry doc back with $set (including immutable fields like kapan_id/created_at); prefer an explicit $set of only changed fields."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "96% (24/25 pytest cases)", "frontend": "100% of tested flows (no UI defects found)"},
+  "seed_data_creation": "Created and then deleted: kapan T232297 (300.00/20 pcs) with packets -01/-02, jangads JG-00036..38, karigars TEST_LaserMan / TEST_PolishMan. Backend suite creates TEST* kapans/karigars and deletes them in fixtures.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@polki.com / admin123 and staff@polki.com / staff123 (both valid, from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "backend_test.py is now pytest-based for the packet-first model; TestIssueReceive::test_sarine_marking_loss_breaks_reconciliation is the only failing case and is an intentional bug probe for the unaccounted sarine/marking loss - it should pass once the fix lands. All other flows (issue/receive/filling/full chain/delete/RBAC) pass on both API and UI. Frontend flows verified end-to-end at 1920x1080 and 390x844; Radix selects need ~400ms after opening. Pre-existing kapan 101.35 was left untouched.",
+  "rca_of_the_issue": "compute_entry() assigns loss = issued - (return + boil + rc + nail_rc) for every non-filling process, but build_report() only aggregates loss for laser, shape/ghat, polish/table_polish and nats. Sarine and Marking losses therefore never enter accounted_weight, so kapan_weight - accounted_weight != 0 and the kapan is reported as unbalanced even though every entry is internally consistent."
+}

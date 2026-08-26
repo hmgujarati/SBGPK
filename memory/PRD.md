@@ -30,7 +30,17 @@ Live kapan report: Kapan Weight = RC | Nail RC | Laser Loss | Polish Loss | Shap
 - Printable Jangad slip with signature lines and `@media print` styles
 - Dashboard with process board; mobile-responsive layout
 
+## Iteration 2 — packet-first rework (2026-06)
+- **Packet is now a first-class record** created inside a Kapan (manual date/pcs/weight, auto packet no `{kapan_no}-01`), guarded so packets can never exceed the kapan's un-packeted weight
+- Issue/Receive act on a packet: pcs/weight are copied from the packet (read-only on issue), a packet can only be issued when in stock, and only issued packets can be received
+- On receive the packet's current weight/pcs auto-update to the return values and `last_process` advances
+- Validation: return weight + boil + RC cannot exceed the issued weight for every process except **Filling**, where the return weight must be greater than or equal to the issued weight (weight gain)
+- Kapan detail: Packets tab (default) + one tab per process, no "All" tab, `#` restarts at 1 in each process tab
+- Reconciliation identity always balances: kapan weight = RC + Nail RC + Boil + Laser + Shape/Ghat + Polish + Nats + Sarine/Marking loss + In Process + Polish Weight + Stock + Un-packeted − Filling Gain
+- Deleting a jangad restores the packet to its previous weight; out-of-order and packet-with-entries deletes are blocked
+
 ## Backlog
+- P1: barcode on each packet — scan to issue (print jangad) and scan to receive (opens the return popup)
 - P1: validate issued weight against kapan remaining weight; prevent duplicate open issue per stage
 - P1: shadcn Calendar date pickers instead of native date inputs
 - P2: multi-packet jangad (one slip for several packets to the same karigar)
