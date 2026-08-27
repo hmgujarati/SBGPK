@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 3 focused testing of the new bulk 'Add Packets to {Process}' flow plus listed regressions. Backend: extended /app/backend/tests/backend_test.py with a new TestBulkProcessPackets class (7 tests) covering multi-row create+issue, packet_no/jangad_no uniqueness & sequencing, in_process delta, over-remaining rejection, zero-weight/bad-process/bad-kapan errors, process field isolation (hw/exp only on laser, ds only on polish, none on nats/sarine), receive of a bulk packet, and 403 for a user without can_create. Also updated the iteration-2 sarine/marking-loss test to assert the fix (other_loss bucket, balanced=True). Full suite: 31/31 passed. Frontend: verified all 9 process tabs show the '{Process} register' heading + 'Add Packets to {Process}' button and Packets tab does not; Sarine dialog (3 rows, shared date, karigar dropdown filtered to Sarine karigars, manual name field, per-row auto size, totals, add/remove row); submitted 3 rows -> 3 packets (Issued, Last Process blank, sequential -01/-02/-03) and 3 jangads (Out, unique JG numbers), In Process +35.75, balance bar BALANCED; laser dialog H/W + Exp. Ret Pcs saved on jangad; polish D/S default Single, selecting Double saved; nats shows none of these; over-limit shows red 'total exceeds this' and disables submit; receive of a bulk sarine packet updated packet weight to 9.60, Last Process=Sarine, In Stock, Sarine/Marking Loss 0.40 and kapan still BALANCED; regression New Packet + per-row Issue dialog, /issue and /receive pages OK; RBAC user without can_create sees no bulk button; mobile 390px dialog fully usable (no horizontal overflow, totals + submit reachable). All test data cleaned up.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "BulkPacketDialog row Size", "issue": "Per-row Size in the dialog is computed with JS toFixed (20.50/4 -> 5.13) while the backend stores Python round() (5.12), so the dialog preview and the saved packet Size differ by 0.01 on .xx5 values", "selector": "[data-testid=\"bulk-size-1\"]", "priority": "LOW"},
+      {"component": "KapanDetail process tab (read-only user)", "issue": "The '{Process} register' heading is inside the can('can_create') block, so a user without can_create sees the entry table with no section heading. Move the heading outside the permission check and only gate the button", "selector": "[data-testid=\"bulk-add-packets-button\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "BulkPacketDialog / ReceiveDialog", "issues": ["Date fields use the native browser date picker (input type=date) instead of the shadcn calendar component", "Radix a11y console warning: Missing Description or aria-describedby for DialogContent (add DialogDescription)"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Optional: align dialog row Size rounding with backend rounding to avoid 0.01 preview mismatch",
+    "Optional: render the '{Process} register' heading regardless of can_create",
+    "Optional: add DialogDescription to dialogs to clear the Radix aria-describedby warning"
+  ],
+  "critical_code_review_comments": [
+    "create_process_packets() correctly strips hw/expected_return_pcs for non-laser and ds for non-polish, validates process, kapan existence and batch total vs remaining un-packeted weight, and returns serialized docs without _id - no issues found",
+    "server.py is 840 lines; consider splitting kapans/packets/entries routers into modules before it grows further"
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (31/31)", "frontend": "100% of tested flows (2 cosmetic nits)"},
+  "seed_data_creation": "Temporary TESTUI kapan, TEST_SARINE_K karigar and test_nocreate_ui@polki.com user were created for UI testing and all deleted afterwards; only pre-existing kapan 101.35 remains. Backend tests create/delete their own TEST* kapans and a temp no-create staff user.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@polki.com/admin123, staff@polki.com/staff123 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "TestBulkProcessPackets in /app/backend/tests/backend_test.py covers POST /api/kapans/{id}/process-packets end to end (including RBAC via a temp no-create staff user it creates and deletes). The iteration-2 sarine/marking reconciliation bug is fixed (other_loss bucket) and asserted. Bulk dialog testids are stable and 0-indexed; Radix ds select needs ~450ms after opening. Only cosmetic items remain: dialog vs backend size rounding, missing register heading for read-only users, native date pickers, Radix DialogDescription warning.",
+  "rca_of_the_issue": "Size mismatch RCA: frontend uses Number(weight/pcs).toFixed(2) (round-half-away) while backend r2() uses Python round() (banker's rounding), so 20.50/4 = 5.125 renders 5.13 in the dialog but persists as 5.12."
+}

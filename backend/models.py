@@ -83,6 +83,22 @@ class PacketCreate(BaseModel):
     notes: Optional[str] = ""
 
 
+class PacketRow(BaseModel):
+    pcs: int = 0
+    weight: float = 0.0
+    hw: Optional[str] = ""
+    ds: Optional[str] = ""
+    expected_return_pcs: Optional[int] = 0
+
+
+class BulkProcessPackets(BaseModel):
+    process: str
+    date: str
+    karigar_id: Optional[str] = None
+    karigar_name: str = ""
+    rows: List[PacketRow] = Field(default_factory=list)
+
+
 class EntryCreate(BaseModel):
     packet_id: str
     process: str

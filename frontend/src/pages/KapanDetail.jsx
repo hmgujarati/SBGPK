@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import IssueDialog from "@/components/IssueDialog";
 import ReceiveDialog from "@/components/ReceiveDialog";
 import PacketDialog from "@/components/PacketDialog";
+import BulkPacketDialog from "@/components/BulkPacketDialog";
 import { EntryTable } from "@/pages/Packets";
 
 export default function KapanDetail() {
@@ -20,6 +21,7 @@ export default function KapanDetail() {
   const [issueOpen, setIssueOpen] = useState(false);
   const [issuePacket, setIssuePacket] = useState(null);
   const [packetOpen, setPacketOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [receiving, setReceiving] = useState(null);
 
   const load = useCallback(() => {
@@ -185,18 +187,35 @@ export default function KapanDetail() {
             </div>
           )
         ) : (
-          <EntryTable
-            rows={(k.entries || []).filter((e) => e.process === tab).map((e) => ({ ...e, kapan_no: k.kapan_no }))}
-            onReceive={setReceiving}
-            onDelete={removeEntry}
-            showKapan={false}
-            showSr
-          />
+          <>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="font-heading text-sm font-bold uppercase tracking-[0.14em] text-zinc-500">
+                {PROCESS_LABELS[tab]} register
+              </h3>
+              {can("can_create") && (
+                <Button data-testid="bulk-add-packets-button" onClick={() => setBulkOpen(true)}
+                  className="h-9 rounded-none bg-zinc-900 text-xs font-semibold uppercase tracking-widest transition-colors hover:bg-zinc-800">
+                  <Plus size={14} className="mr-1" /> Add Packets to {PROCESS_LABELS[tab]}
+                </Button>
+              )}
+            </div>
+            <EntryTable
+              rows={(k.entries || []).filter((e) => e.process === tab).map((e) => ({ ...e, kapan_no: k.kapan_no }))}
+              onReceive={setReceiving}
+              onDelete={removeEntry}
+              showKapan={false}
+              showSr
+            />
+          </>
         )}
       </div>
 
       <PacketDialog open={packetOpen} onOpenChange={setPacketOpen} kapanId={id}
         remaining={p.unpacketed_weight} onDone={load} />
+      {tab !== "packets" && (
+        <BulkPacketDialog open={bulkOpen} onOpenChange={setBulkOpen} kapanId={id} process={tab}
+          remaining={p.unpacketed_weight} onDone={load} />
+      )}
       <IssueDialog
         open={issueOpen}
         onOpenChange={(o) => { setIssueOpen(o); if (!o) setIssuePacket(null); }}

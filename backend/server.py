@@ -30,6 +30,7 @@ from models import (
     KapanCreate,
     KarigarCreate,
     LoginRequest,
+    BulkProcessPackets,
     PacketCreate,
     Permissions,
     UserCreate,
@@ -51,7 +52,9 @@ def oid(value: str) -> ObjectId:
 
 
 def r2(v) -> float:
-    return round(float(v or 0), 2)
+    """Round half-up to 2 decimals so backend matches the UI preview."""
+    from decimal import Decimal, ROUND_HALF_UP
+    return float(Decimal(str(float(v or 0))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 def compute_entry(doc: dict) -> dict:
@@ -464,6 +467,90 @@ async def create_packet(kapan_id: str, payload: PacketCreate, user: dict = Depen
     res = await db.packets.insert_one(doc)
     doc["_id"] = res.inserted_id
     return serialize(doc)
+
+
+@api.post("/kapans/{kapan_id}/process-packets")
+async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, user: dict = Depends(get_current_user)):
+    """Create several packets from a kapan and issue them all into one process."""
+    require(user, "can_create")
+    if payload.process not in PROCESSES:
+        raise HTTPException(status_code=400, detail="Unknown process")
+    rows = [r for r in payload.rows if r.weight and r.weight > 0]
+    if not rows:
+        raise HTTPException(status_code=400, detail="Add at least one packet row with a weight")
+
+    _kid = oid(kapan_id)
+    kapan = await db.kapans.find_one({"_id": _kid})
+    if not kapan:
+        raise HTTPException(status_code=404, detail="Kapan not found")
+
+    existing = await db.packets.find({"kapan_id": _kid}).to_list(2000)
+    remaining = r2(r2(kapan.get("weight")) - r2(sum(r2(p.get("original_weight")) for p in existing)))
+    total = r2(sum(r2(r.weight) for r in rows))
+    if total > remaining + 0.001:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Total {total:.2f} cts exceeds the {remaining:.2f} cts remaining un-packeted in this kapan",
+        )
+
+    seq = len(existing)
+    created = []
+    for row in rows:
+        seq += 1
+        weight, pcs = r2(row.weight), int(row.pcs or 0)
+        packet = {
+            "kapan_id": _kid,
+            "seq": seq,
+            "packet_no": f"{kapan['kapan_no']}-{seq:02d}",
+            "date": payload.date,
+            "pcs": pcs,
+            "weight": weight,
+            "original_pcs": pcs,
+            "original_weight": weight,
+            "size": r2(weight / pcs) if pcs else 0.0,
+            "status": "issued",
+            "last_process": None,
+            "current_process": payload.process,
+            "notes": "",
+            "created_at": now_utc(),
+            "created_by": user.get("name"),
+        }
+        pres = await db.packets.insert_one(packet)
+        packet["_id"] = pres.inserted_id
+
+        entry = {
+            "packet_id": pres.inserted_id,
+            "kapan_id": _kid,
+            "packet_no": packet["packet_no"],
+            "process": payload.process,
+            "date": payload.date,
+            "karigar_id": payload.karigar_id,
+            "karigar_name": payload.karigar_name,
+            "pcs": pcs,
+            "weight": weight,
+            "hw": row.hw if payload.process == "laser" else "",
+            "ds": row.ds if payload.process == "polish" else "",
+            "expected_return_pcs": int(row.expected_return_pcs or 0) if payload.process == "laser" else 0,
+            "notes": "",
+            "prev_process": None,
+            "returned": False,
+            "return_date": None,
+            "return_pcs": 0,
+            "return_weight": 0.0,
+            "return_boil": 0.0,
+            "rc": 0.0,
+            "nail_rc": 0.0,
+            "ls_opening": "",
+            "jangad_no": await next_jangad_no(),
+            "created_at": now_utc(),
+            "created_by": user.get("name"),
+        }
+        compute_entry(entry)
+        eres = await db.entries.insert_one(entry)
+        entry["_id"] = eres.inserted_id
+        created.append({"packet": serialize(packet), "entry": serialize(entry)})
+
+    return {"created": created, "count": len(created), "total_weight": total}
 
 
 @api.delete("/packets/{packet_id}")

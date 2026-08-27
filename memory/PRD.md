@@ -39,6 +39,11 @@ Live kapan report: Kapan Weight = RC | Nail RC | Laser Loss | Polish Loss | Shap
 - Reconciliation identity always balances: kapan weight = RC + Nail RC + Boil + Laser + Shape/Ghat + Polish + Nats + Sarine/Marking loss + In Process + Polish Weight + Stock + Un-packeted − Filling Gain
 - Deleting a jangad restores the packet to its previous weight; out-of-order and packet-with-entries deletes are blocked
 
+## Iteration 3 — bulk packet entry inside a process (2026-06)
+- Each process tab on Kapan detail has an **Add Packets to {Process}** button opening a multi-row form (Date + Karigar shared, then rows of Pcs / Weight with auto Size, plus H/W + Exp. Ret Pcs for Laser and D/S for Polish)
+- `POST /api/kapans/{id}/process-packets` creates every packet and issues each one into that process in a single call, guarding the batch total against the kapan's remaining un-packeted weight
+- Each row gets its own packet no and jangad no; reconciliation stays balanced
+
 ## Backlog
 - P1: barcode on each packet — scan to issue (print jangad) and scan to receive (opens the return popup)
 - P1: validate issued weight against kapan remaining weight; prevent duplicate open issue per stage

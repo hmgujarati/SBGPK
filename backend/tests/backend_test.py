@@ -3,6 +3,7 @@ import os
 import re
 import random
 import uuid
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
 import pytest
@@ -228,8 +229,8 @@ class TestIssueReceive:
         assert d2["report"]["rc"] == 1.0 and d2["report"]["boil"] == 0.5
 
     def test_sarine_marking_loss_breaks_reconciliation(self, admin):
-        """BUG PROBE: loss on sarine/marking is computed on the entry but has no bucket in
-        build_report(), so the kapan reconciliation goes out of balance."""
+        """Iteration-3 fix: sarine/marking loss lands in the other_loss bucket so the kapan
+        reconciliation identity still holds (balanced, difference 0.00)."""
         k = new_kapan(admin, 50.0, 2)
         try:
             p = mk_packet(admin, k["id"], 2, 50.0).json()
@@ -238,6 +239,8 @@ class TestIssueReceive:
             assert rec.status_code == 200, rec.text
             assert rec.json()["loss"] == 1.0
             rep = report(admin, k["id"])["report"]
+            assert rep["other_loss"] == 1.0, rep
+            assert rep["balanced"] is True, rep
             assert rep["difference"] == 0.0, (
                 f"sarine loss 1.00 unaccounted -> difference {rep['difference']}")
         finally:
@@ -406,3 +409,131 @@ class TestMisc:
         assert r.status_code == 400
         assert "already exists" in r.json()["detail"].lower()
         admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+
+# ---------------------------------------------------------------- iteration 3: bulk create+issue in a process
+def bulk(sess, kapan_id, process, rows, date="2026-07-05", karigar_name="TEST_BULK_K", karigar_id=None):
+    return sess.post(
+        f"{API}/kapans/{kapan_id}/process-packets",
+        json={"process": process, "date": date, "karigar_id": karigar_id,
+              "karigar_name": karigar_name, "rows": rows},
+        timeout=TIMEOUT,
+    )
+
+
+class TestBulkProcessPackets:
+    @pytest.fixture(scope="class")
+    def kapan(self, admin):
+        k = new_kapan(admin, 200.0, 10)
+        yield k
+        admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+    def test_bulk_creates_packets_and_jangads(self, admin, kapan):
+        before = report(admin, kapan["id"])["report"]
+        rows = [{"pcs": 2, "weight": 10.0}, {"pcs": 4, "weight": 20.5}, {"pcs": 1, "weight": 5.25}]
+        r = bulk(admin, kapan["id"], "sarine", rows)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["count"] == 3
+        assert d["total_weight"] == 35.75
+        pkt_nos, jg_nos = [], []
+        for i, item in enumerate(d["created"]):
+            pk, en = item["packet"], item["entry"]
+            assert "_id" not in pk and "_id" not in en
+            assert pk["status"] == "issued" and pk["last_process"] is None
+            assert pk["packet_no"].startswith(f"{kapan['kapan_no']}-")
+            assert pk["original_weight"] == rows[i]["weight"]
+            assert pk["size"] == float(Decimal(str(rows[i]["weight"] / rows[i]["pcs"])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+            assert en["process"] == "sarine" and en["returned"] is False
+            assert en["karigar_name"] == "TEST_BULK_K"
+            assert en["weight"] == rows[i]["weight"] and en["pcs"] == rows[i]["pcs"]
+            # process isolation: sarine batch must not carry laser/polish fields
+            assert en["hw"] == "" and en["ds"] == "" and en["expected_return_pcs"] == 0
+            pkt_nos.append(pk["packet_no"])
+            jg_nos.append(en["jangad_no"])
+        assert len(set(pkt_nos)) == 3 and len(set(jg_nos)) == 3
+        seqs = sorted(int(n.split("-")[-1]) for n in pkt_nos)
+        assert seqs == list(range(seqs[0], seqs[0] + 3)), pkt_nos
+
+        # persistence via GET
+        det = report(admin, kapan["id"])
+        got = {p["packet_no"]: p for p in det["packets"]}
+        for n in pkt_nos:
+            assert n in got and got[n]["status"] == "issued"
+        ent = [e for e in det["entries"] if e["process"] == "sarine" and e["jangad_no"] in jg_nos]
+        assert len(ent) == 3
+        rep = det["report"]
+        assert rep["in_process_weight"] == round(before["in_process_weight"] + 35.75, 2)
+        assert rep["balanced"] is True and rep["difference"] == 0.0
+
+    def test_over_remaining_rejected(self, admin, kapan):
+        rem = report(admin, kapan["id"])["report"]["unpacketed_weight"]
+        r = bulk(admin, kapan["id"], "marking", [{"pcs": 1, "weight": rem + 5}])
+        assert r.status_code == 400, r.text
+        detail = r.json()["detail"]
+        assert f"{rem:.2f}" in detail, detail
+        assert "remaining" in detail.lower()
+
+    def test_zero_weight_rows_and_bad_process(self, admin, kapan):
+        r = bulk(admin, kapan["id"], "sarine", [{"pcs": 2, "weight": 0}])
+        assert r.status_code == 400
+        r = bulk(admin, kapan["id"], "nosuch", [{"pcs": 1, "weight": 1.0}])
+        assert r.status_code == 400 and "process" in r.json()["detail"].lower()
+        r = bulk(admin, "64b7f9c2f1a2b3c4d5e6f7a8", "sarine", [{"pcs": 1, "weight": 1.0}])
+        assert r.status_code == 404, r.text
+
+    def test_laser_keeps_hw_expected_polish_keeps_ds_nats_none(self, admin, kapan):
+        r = bulk(admin, kapan["id"], "laser",
+                 [{"pcs": 2, "weight": 8.0, "hw": "3x4", "ds": "Double", "expected_return_pcs": 5}])
+        assert r.status_code == 200, r.text
+        en = r.json()["created"][0]["entry"]
+        assert en["hw"] == "3x4" and en["expected_return_pcs"] == 5 and en["ds"] == ""
+
+        r = bulk(admin, kapan["id"], "polish",
+                 [{"pcs": 2, "weight": 8.0, "hw": "9x9", "ds": "Double", "expected_return_pcs": 7}])
+        assert r.status_code == 200, r.text
+        en = r.json()["created"][0]["entry"]
+        assert en["ds"] == "Double" and en["hw"] == "" and en["expected_return_pcs"] == 0
+
+        r = bulk(admin, kapan["id"], "nats",
+                 [{"pcs": 2, "weight": 6.0, "hw": "1x1", "ds": "Single", "expected_return_pcs": 3}])
+        assert r.status_code == 200, r.text
+        en = r.json()["created"][0]["entry"]
+        assert en["hw"] == "" and en["ds"] == "" and en["expected_return_pcs"] == 0
+
+    def test_bulk_packet_can_be_received(self, admin):
+        k = new_kapan(admin, 60.0, 4)
+        try:
+            r = bulk(admin, k["id"], "sarine", [{"pcs": 3, "weight": 30.0}])
+            assert r.status_code == 200, r.text
+            item = r.json()["created"][0]
+            rec = receive(admin, item["entry"]["id"], return_pcs=3, return_weight=29.5)
+            assert rec.status_code == 200, rec.text
+            assert rec.json()["loss"] == 0.5
+            det = report(admin, k["id"])
+            pk = next(p for p in det["packets"] if p["packet_no"] == item["packet"]["packet_no"])
+            assert pk["weight"] == 29.5 and pk["status"] == "in_stock"
+            assert pk["last_process"] == "sarine"
+            rep = det["report"]
+            assert rep["other_loss"] == 0.5
+            assert rep["balanced"] is True and rep["difference"] == 0.0
+        finally:
+            admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+    def test_rbac_no_create_permission_gets_403(self, admin, kapan):
+        email = f"TEST_nocreate_{uuid.uuid4().hex[:8]}@polki.com"
+        cr = admin.post(f"{API}/users", json={
+            "name": "TEST_NoCreate", "email": email, "password": "nocreate123", "role": "staff",
+            "permissions": {"can_create": False, "can_edit": False, "can_delete": False,
+                            "can_manage_staff": False, "can_manage_karigar": False}}, timeout=TIMEOUT)
+        assert cr.status_code == 200, cr.text
+        uid = cr.json()["id"]
+        try:
+            s = requests.Session()
+            lr = s.post(f"{API}/auth/login", json={"email": email, "password": "nocreate123"}, timeout=TIMEOUT)
+            assert lr.status_code == 200, lr.text
+            s.headers.update({"Authorization": f"Bearer {lr.json()['token']}"})
+            r = bulk(s, kapan["id"], "sarine", [{"pcs": 1, "weight": 1.0}])
+            assert r.status_code == 403, r.text
+        finally:
+            admin.delete(f"{API}/users/{uid}", timeout=TIMEOUT)
