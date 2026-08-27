@@ -44,6 +44,11 @@ Live kapan report: Kapan Weight = RC | Nail RC | Laser Loss | Polish Loss | Shap
 - `POST /api/kapans/{id}/process-packets` creates every packet and issues each one into that process in a single call, guarding the batch total against the kapan's remaining un-packeted weight
 - Each row gets its own packet no and jangad no; reconciliation stays balanced
 
+## Iteration 4 — Packets tab removed (2026-06)
+- Kapan detail now opens straight on the **Sarine** tab; the Packets tab and the single "New Packet" dialog are gone since packets are created inside each process
+- Process tabs show a live count of jangads, and the packet total moved into the kapan subtitle line
+- Moving a packet to the next stage is done from the **Packet Issue** page (in-stock packet picker)
+
 ## Backlog
 - P1: barcode on each packet — scan to issue (print jangad) and scan to receive (opens the return popup)
 - P1: validate issued weight against kapan remaining weight; prevent duplicate open issue per stage
