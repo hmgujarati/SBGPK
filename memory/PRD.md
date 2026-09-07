@@ -27,6 +27,11 @@ Files: /app/backend/server.py, models.py, core.py; /app/frontend/src/{pages,comp
 - 2026-06: Laser Sawing — H/W and Tops captured at PACKET CREATION (per row),
   expected_return_pcs auto = pcs + tops, carried onto the Jangad entry and printed
   per-line on the slip; LS Opening captured on Receive. Jangad payload hw/tops ignored.
+- 2026-06: Exp. Ret Pcs is a MANUAL numeric input at packet creation (no auto pcs+tops)
+- 2026-06: Polish — D/S (Double/Single) chosen per row at PACKET CREATION, carried onto the Jangad
+- 2026-06: Packet label serial now = position within its own process register (was kapan-wide seq)
+- 2026-06: Jangad prints as ONE A4 portrait sheet with two copies side by side
+  (Office Copy | Karigar Copy) separated by a dashed cut line
 - Backend test suite: 69/69 passing (/app/backend/tests/backend_test.py)
 
 ## Backlog
