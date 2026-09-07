@@ -41,6 +41,7 @@ export const PROCESS_CREATE_FIELDS = {
     { key: "hw", label: "H / W", type: "text" },
     { key: "tops", label: "Tops", type: "number" },
   ],
+  polish: [{ key: "ds", label: "D / S", type: "select", options: ["Double", "Single"] }],
 };
 
 export const PROCESS_CONFIG = {
@@ -49,7 +50,7 @@ export const PROCESS_CONFIG = {
   laser: { issue: [], ret: [F.boil, F.rc, F.nail_rc, F.ls], showLoss: true },
   shape: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
   ghat: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
-  polish: { issue: [F.ds], ret: [F.boil, F.rc, F.nail_rc], showLoss: true, showRetPct: true },
+  polish: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true, showRetPct: true },
   table_polish: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true, showRetPct: true },
   nats: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
   filling: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: false, showGain: true },

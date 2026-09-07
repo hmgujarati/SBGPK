@@ -613,7 +613,16 @@ class TestJangads:
         r = issue_jangad(admin, "polish", pids2, hw="9x9", ds="Single", expected_return_pcs=3)
         assert r.status_code == 200, r.text
         for e in r.json()["entries"]:
-            assert e["ds"] == "Single" and e["hw"] == "" and e["expected_return_pcs"] == 0
+            assert e["ds"] == "" and e["hw"] == "" and e["expected_return_pcs"] == 0
+
+        # D/S now comes from polish packet creation
+        rp = bulk(admin, kapan["id"], "polish", [{"pcs": 2, "weight": 5.0, "ds": "Double"}])
+        assert rp.status_code == 200, rp.text
+        pk = rp.json()["created"][0]
+        assert pk["ds"] == "Double"
+        r = issue_jangad(admin, "polish", [pk["id"]], ds="Single")
+        assert r.status_code == 200, r.text
+        assert r.json()["entries"][0]["ds"] == "Double"
 
         pids3, _ = self._make_packets(admin, kapan, 1, 4.0, "nats")
         r = issue_jangad(admin, "nats", pids3, hw="1x1", ds="Single", expected_return_pcs=2)

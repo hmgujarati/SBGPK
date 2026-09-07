@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 
 const inp = "mt-1 h-10 rounded-none border-black/15 tabular-nums";
 const cell = "h-9 rounded-none border-black/15 tabular-nums";
-const emptyRow = () => ({ pcs: "", weight: "", hw: "", tops: "", expected_return_pcs: "" });
+const emptyRow = () => ({ pcs: "", weight: "", hw: "", tops: "", expected_return_pcs: "", ds: "Double" });
 
 export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaining, onDone }) => {
   const [date, setDate] = useState(today());
@@ -33,6 +33,7 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
   );
 
   const isLaser = process === "laser";
+  const isPolish = process === "polish";
   const over = totals.weight > Number(remaining || 0) + 0.001;
   const setRow = (i, patch) => setRows((rs) => rs.map((r, x) => (x === i ? { ...r, ...patch } : r)));
 
@@ -49,6 +50,7 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
               expected_return_pcs: Number(r.expected_return_pcs || 0),
             }
           : {}),
+        ...(isPolish ? { ds: r.ds || "Double" } : {}),
       }));
     if (!payloadRows.length) return toast.error("Enter at least one packet weight");
     setBusy(true);
@@ -100,6 +102,9 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
                     <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Exp. Ret Pcs</th>
                   </>
                 )}
+                {isPolish && (
+                  <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">D / S</th>
+                )}
                 <th className="px-2 py-2" />
               </tr>
             </thead>
@@ -134,6 +139,16 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
                         </td>
                       </>
                     )}
+                    {isPolish && (
+                      <td className="px-2 py-1.5">
+                        <select data-testid={`bulk-ds-${i}`} value={r.ds || "Double"}
+                          onChange={(e) => setRow(i, { ds: e.target.value })}
+                          className="h-9 w-28 border border-black/15 bg-white px-2 text-xs">
+                          <option value="Double">Double</option>
+                          <option value="Single">Single</option>
+                        </select>
+                      </td>
+                    )}
                     <td className="px-2 py-1.5 text-right">
                       {rows.length > 1 && (
                         <button data-testid={`bulk-remove-${i}`}
@@ -150,7 +165,7 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
                 <td className="px-2 py-2 uppercase tracking-wider">Total</td>
                 <td className="px-2 py-2 tabular-nums">{totals.pcs}</td>
                 <td className="px-2 py-2 tabular-nums">{ct(totals.weight)}</td>
-                <td colSpan={isLaser ? 5 : 2} />
+                <td colSpan={isLaser ? 5 : isPolish ? 3 : 2} />
               </tr>
             </tbody>
           </table>

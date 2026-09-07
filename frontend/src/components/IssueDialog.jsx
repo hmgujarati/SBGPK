@@ -194,9 +194,11 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
           </table>
         </div>
 
-        {form.process === "laser" && (
+        {(form.process === "laser" || form.process === "polish") && (
           <p className="border border-black/10 bg-zinc-50 px-3 py-2 text-xs text-zinc-600" data-testid="issue-expected-hint">
-            H/W and Tops come from the packet — set them when creating packets in the Laser register.
+            {form.process === "laser"
+              ? "H/W, Tops and Exp. Ret Pcs come from the packet — set them when creating packets in the Laser register."
+              : "D/S comes from the packet — set it when creating packets in the Polish register."}
           </p>
         )}
 

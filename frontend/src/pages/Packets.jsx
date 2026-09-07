@@ -68,7 +68,7 @@ export const EntryTable = ({ rows, onReceive, onDelete, onEdit, onDeletePacket, 
                 <TD cls="text-zinc-400">—</TD>
                 <TD right>{e.pcs}</TD>
                 <TD right cls="font-semibold">{ct(e.weight)}</TD>
-                <TD cls="text-zinc-500">{e.hw || "—"}</TD>
+                <TD cls="text-zinc-500">{e.hw || e.ds || "—"}</TD>
                 <TD right>{e.process === "laser" ? e.tops || 0 : "—"}</TD>
                 <TD right>{e.process === "laser" ? e.expected_return_pcs || 0 : "—"}</TD>
                 {Array.from({ length: 11 }).map((_, x) => (

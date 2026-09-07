@@ -97,6 +97,7 @@ class PacketRow(BaseModel):
     pcs: int = 0
     weight: float = 0.0
     hw: Optional[str] = ""
+    ds: Optional[str] = ""
     tops: Optional[int] = 0
     expected_return_pcs: Optional[int] = 0
 
