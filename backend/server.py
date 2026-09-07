@@ -69,7 +69,7 @@ def compute_entry(doc: dict) -> dict:
     doc["weight"] = weight
     if process == "laser":
         doc["tops"] = int(doc.get("tops") or 0)
-        doc["expected_return_pcs"] = pcs + doc["tops"]
+        doc["expected_return_pcs"] = int(doc.get("expected_return_pcs") or 0)
     else:
         doc["tops"] = 0
         doc["expected_return_pcs"] = 0
@@ -546,7 +546,7 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
             "status": "in_stock",
             "hw": (row.hw or "") if payload.process == "laser" else "",
             "tops": int(row.tops or 0) if payload.process == "laser" else 0,
-            "expected_return_pcs": (pcs + int(row.tops or 0)) if payload.process == "laser" else 0,
+            "expected_return_pcs": int(row.expected_return_pcs or 0) if payload.process == "laser" else 0,
             "last_process": None,
             "current_process": None,
             "notes": "",
@@ -593,6 +593,7 @@ async def create_jangad(payload: JangadCreate, user: dict = Depends(get_current_
             "hw": (packet.get("hw") or "") if payload.process == "laser" else "",
             "ds": payload.ds if payload.process == "polish" else "",
             "tops": int(packet.get("tops") or 0) if payload.process == "laser" else 0,
+            "expected_return_pcs": int(packet.get("expected_return_pcs") or 0) if payload.process == "laser" else 0,
             "notes": payload.notes or "",
             "prev_process": packet.get("last_process"),
             "returned": False,

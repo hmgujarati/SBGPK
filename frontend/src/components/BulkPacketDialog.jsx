@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 
 const inp = "mt-1 h-10 rounded-none border-black/15 tabular-nums";
 const cell = "h-9 rounded-none border-black/15 tabular-nums";
-const emptyRow = () => ({ pcs: "", weight: "", hw: "", tops: "" });
+const emptyRow = () => ({ pcs: "", weight: "", hw: "", tops: "", expected_return_pcs: "" });
 
 export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaining, onDone }) => {
   const [date, setDate] = useState(today());
@@ -42,7 +42,13 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
       .map((r) => ({
         pcs: Number(r.pcs || 0),
         weight: Number(r.weight || 0),
-        ...(isLaser ? { hw: r.hw || "", tops: Number(r.tops || 0) } : {}),
+        ...(isLaser
+          ? {
+              hw: r.hw || "",
+              tops: Number(r.tops || 0),
+              expected_return_pcs: Number(r.expected_return_pcs || 0),
+            }
+          : {}),
       }));
     if (!payloadRows.length) return toast.error("Enter at least one packet weight");
     setBusy(true);
@@ -122,8 +128,9 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
                           <Input data-testid={`bulk-tops-${i}`} type="number" value={r.tops ?? ""}
                             onChange={(e) => setRow(i, { tops: e.target.value })} className={`${cell} w-20`} />
                         </td>
-                        <td className="px-2 py-1.5 font-semibold tabular-nums text-zinc-700" data-testid={`bulk-exp-ret-${i}`}>
-                          {Number(r.pcs || 0) + Number(r.tops || 0)}
+                        <td className="px-2 py-1.5">
+                          <Input data-testid={`bulk-exp-ret-${i}`} type="number" value={r.expected_return_pcs ?? ""}
+                            onChange={(e) => setRow(i, { expected_return_pcs: e.target.value })} className={`${cell} w-24`} />
                         </td>
                       </>
                     )}

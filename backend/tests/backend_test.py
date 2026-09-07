@@ -249,8 +249,8 @@ class TestIssueReceive:
 
     def test_laser_keeps_hw_and_polish_keeps_ds(self, admin, kapan):
         p = mk_packet(admin, kapan["id"], 2, 20.0).json()
-        e = issue(admin, p["id"], "laser", hw="3x4", ds="D", tops=3).json()
-        assert e["hw"] == "3x4" and e["tops"] == 3 and e["expected_return_pcs"] == e["pcs"] + 3 and e["ds"] == ""
+        e = issue(admin, p["id"], "laser", hw="3x4", ds="D", tops=3, expected_return_pcs=5).json()
+        assert e["hw"] == "3x4" and e["tops"] == 3 and e["expected_return_pcs"] == 5 and e["ds"] == ""
         receive(admin, e["id"], return_pcs=3, return_weight=18.0, return_boil=18.0)
         e2 = issue(admin, p["id"], "polish", hw="9x9", ds="Double").json()
         assert e2["ds"] == "Double" and e2["hw"] == ""
@@ -592,11 +592,11 @@ class TestJangads:
 
     def test_laser_stores_hw_expected_polish_stores_ds_nats_none(self, admin, kapan):
         # H/W and Tops now come from packet creation, not the jangad payload
-        rows = [{"pcs": 2, "weight": 5.0, "hw": "4x5", "tops": 2} for _ in range(2)]
+        rows = [{"pcs": 2, "weight": 5.0, "hw": "4x5", "tops": 2, "expected_return_pcs": 4} for _ in range(2)]
         rb = bulk(admin, kapan["id"], "laser", rows)
         assert rb.status_code == 200, rb.text
         for p in rb.json()["created"]:
-            assert p["hw"] == "4x5" and p["tops"] == 2 and p["expected_return_pcs"] == p["pcs"] + 2
+            assert p["hw"] == "4x5" and p["tops"] == 2 and p["expected_return_pcs"] == 4
         pids = [p["id"] for p in rb.json()["created"]]
         r = issue_jangad(admin, "laser", pids, hw="ignored", ds="Double", tops=99)
         eid = r.json()["entries"][0]["id"]
@@ -607,7 +607,7 @@ class TestJangads:
         assert r.status_code == 200, r.text
         for e in r.json()["entries"]:
             assert e["hw"] == "4x5" and e["ds"] == ""
-            assert e["tops"] == 2 and e["expected_return_pcs"] == e["pcs"] + 2
+            assert e["tops"] == 2 and e["expected_return_pcs"] == 4
 
         pids2, _ = self._make_packets(admin, kapan, 2, 5.0, "polish")
         r = issue_jangad(admin, "polish", pids2, hw="9x9", ds="Single", expected_return_pcs=3)

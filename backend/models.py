@@ -98,6 +98,7 @@ class PacketRow(BaseModel):
     weight: float = 0.0
     hw: Optional[str] = ""
     tops: Optional[int] = 0
+    expected_return_pcs: Optional[int] = 0
 
 
 class BulkProcessPackets(BaseModel):

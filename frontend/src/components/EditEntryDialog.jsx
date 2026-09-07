@@ -130,9 +130,9 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
                 <Input data-testid="edit-tops-input" type="number" value={v.tops ?? ""}
                   onChange={(e) => setV({ ...v, tops: e.target.value })} className={inp} />
               </Field>
-              <Field label="Exp. Ret Pcs (auto)">
-                <Input data-testid="edit-exp-pcs-display" readOnly
-                  value={Number(v.pcs || 0) + Number(v.tops || 0)} className={`${inp} bg-zinc-100`} />
+              <Field label="Exp. Ret Pcs">
+                <Input data-testid="edit-exp-pcs-input" type="number" value={v.expected_return_pcs ?? ""}
+                  onChange={(e) => setV({ ...v, expected_return_pcs: e.target.value })} className={inp} />
               </Field>
             </>
           )}
