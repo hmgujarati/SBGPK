@@ -36,31 +36,34 @@ const F = {
 };
 
 export const PROCESS_CONFIG = {
-  sarine: { issue: [], ret: [], showLoss: false },
-  marking: { issue: [], ret: [], showLoss: false },
-  laser: { issue: [F.hw, F.exp], ret: [F.boil, F.rc, F.ls], showLoss: true },
-  shape: { issue: [], ret: [F.boil, F.nail_rc], showLoss: true },
-  ghat: { issue: [], ret: [F.boil, F.nail_rc], showLoss: true },
-  polish: { issue: [F.ds], ret: [], showLoss: true, showRetPct: true },
-  table_polish: { issue: [], ret: [], showLoss: true, showRetPct: true },
-  nats: { issue: [], ret: [], showLoss: true },
-  filling: { issue: [], ret: [], showLoss: false, showGain: true },
+  sarine: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
+  marking: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
+  laser: { issue: [F.hw, F.exp], ret: [F.boil, F.rc, F.nail_rc, F.ls], showLoss: true },
+  shape: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
+  ghat: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
+  polish: { issue: [F.ds], ret: [F.boil, F.rc, F.nail_rc], showLoss: true, showRetPct: true },
+  table_polish: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true, showRetPct: true },
+  nats: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
+  filling: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: false, showGain: true },
 };
 
+/** Loss comes off the Return Boil; RC / Nail RC are allocations out of the boil. */
 export function computeReturn(process, issueWeight, values) {
   const w = Number(issueWeight || 0);
   const rw = Number(values.return_weight || 0);
   const boil = Number(values.return_boil || 0);
   const rc = Number(values.rc || 0);
   const nail = Number(values.nail_rc || 0);
+  const net = boil - rc - nail;
   if (process === "filling") {
-    return { loss: 0, loss_pct: 0, return_pct: w ? (rw / w) * 100 : 0, weight_gain: rw - w };
+    return { loss: 0, loss_pct: 0, return_pct: w ? (rw / w) * 100 : 0, weight_gain: boil - w, net };
   }
-  const loss = w - (rw + boil + rc + nail);
+  const loss = w - boil;
   return {
     loss,
     loss_pct: w ? (loss / w) * 100 : 0,
     return_pct: w ? (rw / w) * 100 : 0,
     weight_gain: 0,
+    net,
   };
 }

@@ -216,17 +216,18 @@ class TestIssueReceive:
         assert r2.status_code == 400
         assert "already issued" in r2.json()["detail"].lower()
 
-        # receive
-        rec = receive(admin, e["id"], return_pcs=4, return_weight=38.5, rc=1.0, return_boil=0.5)
+        # receive (new formula: loss = issue - boil, packet carries net = boil - rc - nail_rc)
+        rec = receive(admin, e["id"], return_pcs=4, return_weight=39.0, return_boil=40.0, rc=1.0)
         assert rec.status_code == 200, rec.text
         rd = rec.json()
-        assert rd["loss"] == 0.0
+        assert rd["loss"] == 0.0  # 40 - 40
+        assert rd["net_weight"] == 39.0  # 40 - 1
         d2 = report(admin, kapan["id"])
         pk = [x for x in d2["packets"] if x["id"] == p["id"]][0]
-        assert pk["weight"] == 38.5 and pk["pcs"] == 4 and pk["last_process"] == "sarine"
+        assert pk["weight"] == 39.0 and pk["pcs"] == 4 and pk["last_process"] == "sarine"
         assert pk["status"] == "in_stock"
         assert d2["report"]["difference"] == 0.0
-        assert d2["report"]["rc"] == 1.0 and d2["report"]["boil"] == 0.5
+        assert d2["report"]["rc"] == 1.0 and d2["report"]["boil"] == 40.0
 
     def test_sarine_marking_loss_breaks_reconciliation(self, admin):
         """Iteration-3 fix: sarine/marking loss lands in the other_loss bucket so the kapan
@@ -235,9 +236,9 @@ class TestIssueReceive:
         try:
             p = mk_packet(admin, k["id"], 2, 50.0).json()
             e = issue(admin, p["id"], "sarine").json()
-            rec = receive(admin, e["id"], return_pcs=2, return_weight=49.0)
+            rec = receive(admin, e["id"], return_pcs=2, return_weight=49.0, return_boil=49.0)
             assert rec.status_code == 200, rec.text
-            assert rec.json()["loss"] == 1.0
+            assert rec.json()["loss"] == 1.0  # 50 - 49
             rep = report(admin, k["id"])["report"]
             assert rep["other_loss"] == 1.0, rep
             assert rep["balanced"] is True, rep
@@ -250,34 +251,44 @@ class TestIssueReceive:
         p = mk_packet(admin, kapan["id"], 2, 20.0).json()
         e = issue(admin, p["id"], "laser", hw="3x4", ds="D", expected_return_pcs=3).json()
         assert e["hw"] == "3x4" and e["expected_return_pcs"] == 3 and e["ds"] == ""
-        receive(admin, e["id"], return_pcs=3, return_weight=18.0)
+        receive(admin, e["id"], return_pcs=3, return_weight=18.0, return_boil=18.0)
         e2 = issue(admin, p["id"], "polish", hw="9x9", ds="Double").json()
         assert e2["ds"] == "Double" and e2["hw"] == ""
-        receive(admin, e2["id"], return_pcs=3, return_weight=16.0)
+        receive(admin, e2["id"], return_pcs=3, return_weight=16.0, return_boil=16.0)
 
     def test_receive_over_issued_weight_rejected(self, admin, kapan):
         p = mk_packet(admin, kapan["id"], 2, 20.0).json()
         e = issue(admin, p["id"], "laser").json()
-        r = receive(admin, e["id"], return_pcs=2, return_weight=19.0, return_boil=1.0, rc=1.0)
+        # boil > issue rejected
+        r = receive(admin, e["id"], return_pcs=2, return_weight=19.0, return_boil=21.0)
         assert r.status_code == 400, r.text
         assert "cannot exceed" in r.json()["detail"].lower()
-        # zero return weight rejected
-        r0 = receive(admin, e["id"], return_pcs=2, return_weight=0)
+        # zero boil rejected
+        r0 = receive(admin, e["id"], return_pcs=2, return_weight=18.0, return_boil=0)
         assert r0.status_code == 400
-        ok = receive(admin, e["id"], return_pcs=2, return_weight=18.0, rc=1.0)
+        assert "greater than 0" in r0.json()["detail"].lower()
+        # rc + nail > boil rejected
+        rbad = receive(admin, e["id"], return_pcs=2, return_weight=18.0, return_boil=18.0, rc=20.0)
+        assert rbad.status_code == 400
+        assert "cannot exceed the return boil" in rbad.json()["detail"].lower()
+        # happy path
+        ok = receive(admin, e["id"], return_pcs=2, return_weight=18.0, return_boil=18.0, rc=1.0)
         assert ok.status_code == 200, ok.text
+        assert ok.json()["loss"] == 2.0  # 20 - 18
+        assert ok.json()["net_weight"] == 17.0  # 18 - 1
         # double receive rejected
-        again = receive(admin, e["id"], return_pcs=2, return_weight=17.0)
+        again = receive(admin, e["id"], return_pcs=2, return_weight=17.0, return_boil=17.0)
         assert again.status_code == 400
         assert "already been received" in again.json()["detail"].lower()
 
     def test_filling_requires_weight_gain(self, admin, kapan):
         p = mk_packet(admin, kapan["id"], 2, 20.0).json()
         e = issue(admin, p["id"], "filling").json()
-        bad = receive(admin, e["id"], return_pcs=2, return_weight=19.0)
+        # boil < issue rejected for filling
+        bad = receive(admin, e["id"], return_pcs=2, return_weight=19.0, return_boil=19.0)
         assert bad.status_code == 400, bad.text
         assert "cannot be less" in bad.json()["detail"].lower()
-        good = receive(admin, e["id"], return_pcs=2, return_weight=22.5)
+        good = receive(admin, e["id"], return_pcs=2, return_weight=22.5, return_boil=22.5)
         assert good.status_code == 200, good.text
         g = good.json()
         assert g["weight_gain"] == 2.5 and g["loss"] == 0.0
@@ -314,8 +325,10 @@ class TestFullChain:
             assert e.status_code == 200, f"{proc}: {e.text}"
             rep = report(admin, kapan["id"])["report"]
             assert rep["difference"] == 0.0, f"unbalanced while {proc} out: {rep}"
+            rc = 0.5 if proc != "sarine" else 0
+            # net_weight = boil - rc should equal rw so next issue matches
             rec = receive(admin, e.json()["id"], return_pcs=5, return_weight=rw,
-                          rc=0.5 if proc != "sarine" else 0)
+                          return_boil=rw + rc, rc=rc)
             assert rec.status_code == 200, f"{proc} receive: {rec.text}"
             rep = report(admin, kapan["id"])["report"]
             assert rep["difference"] == 0.0, f"unbalanced after {proc}: {rep}"
@@ -324,9 +337,9 @@ class TestFullChain:
         assert rep["polish_weight"] == 76.0, f"polish_weight wrong: {rep}"
         assert rep["stock_weight"] == 0.0
 
-        # filling last
+        # filling last (boil >= issue for filling)
         e = issue(admin, p["id"], "filling").json()
-        rec = receive(admin, e["id"], return_pcs=5, return_weight=80.0)
+        rec = receive(admin, e["id"], return_pcs=5, return_weight=80.0, return_boil=80.0)
         assert rec.status_code == 200, rec.text
         rep = report(admin, kapan["id"])["report"]
         assert rep["filling_gain"] == 4.0
@@ -618,12 +631,12 @@ class TestJangads:
         pids, _ = self._make_packets(admin, kapan, 1, 6.0, "sarine")
         j = issue_jangad(admin, "sarine", pids).json()
         eid = j["entries"][0]["id"]
-        rec = receive(admin, eid, return_pcs=2, return_weight=5.5)
+        rec = receive(admin, eid, return_pcs=2, return_weight=5.5, return_boil=5.5)
         assert rec.status_code == 200, rec.text
         det = report(admin, kapan["id"])
         pk = next(p for p in det["packets"] if p["id"] == pids[0])
         assert pk["status"] == "in_stock"
-        assert pk["weight"] == 5.5
+        assert pk["weight"] == 5.5  # net_weight = boil - rc = 5.5 - 0
         assert pk["last_process"] == "sarine"
 
     def test_jangad_bad_inputs(self, admin, kapan):
@@ -795,7 +808,9 @@ class TestEntryEdit:
         admin.delete(f"{API}/users/{uid}", timeout=TIMEOUT)
 
     def _received_laser(self, admin, kapan, pcs=10, weight=40.0,
-                        return_pcs=8, return_weight=30.0, boil=2.0, rc=3.0):
+                        return_pcs=8, return_weight=30.0, boil=35.0, rc=3.0):
+        """New formula: loss = weight - boil, net = boil - rc.
+        Defaults: issue 40, boil 35, rc 3 -> loss=5, net=32."""
         p = mk_packet(admin, kapan["id"], pcs, weight).json()
         e = issue(admin, p["id"], "laser", hw="5x5", expected_return_pcs=pcs - 1).json()
         r = receive(admin, e["id"], return_pcs=return_pcs, return_weight=return_weight,
@@ -804,34 +819,41 @@ class TestEntryEdit:
         return p, r.json()
 
     def test_edit_return_weight_recomputes_derived_and_syncs_packet(self, admin, kapan):
-        p, e = self._received_laser(admin, kapan)  # issued 40, return 30, boil 2, rc 3, loss 5
+        p, e = self._received_laser(admin, kapan)  # issued 40, boil 35, rc 3 -> loss 5, net 32
         assert abs(e["loss"] - 5.0) < 0.02
 
+        # Return Weight is informational only under new formula — changing it must NOT touch loss/net
         r = admin.put(f"{API}/entries/{e['id']}",
                       json={"return_weight": 34.0}, timeout=TIMEOUT)
         assert r.status_code == 200, r.text
         d = r.json()
         assert abs(d["return_weight"] - 34.0) < 0.02
-        # loss = 40 - (34 + 2 + 3) = 1.0
-        assert abs(d["loss"] - 1.0) < 0.02
-        assert abs(d["loss_pct"] - 2.5) < 0.05
-        assert abs(d["return_pct"] - 85.0) < 0.05
+        assert abs(d["loss"] - 5.0) < 0.02  # unchanged
+        assert abs(d["net_weight"] - 32.0) < 0.02  # unchanged
+        assert abs(d["return_pct"] - 85.0) < 0.05  # 34/40 = 85%
         assert d.get("edited_by")
-        # packet current weight/pcs follows edited return
+        # Now edit boil -> recomputes loss/net and syncs packet
+        r2 = admin.put(f"{API}/entries/{e['id']}",
+                       json={"return_boil": 39.0}, timeout=TIMEOUT)
+        assert r2.status_code == 200, r2.text
+        d2 = r2.json()
+        assert abs(d2["loss"] - 1.0) < 0.02  # 40 - 39
+        assert abs(d2["loss_pct"] - 2.5) < 0.05
+        assert abs(d2["net_weight"] - 36.0) < 0.02  # 39 - 3
+        # packet current weight/pcs follows net_weight
         pk = next(x for x in report(admin, kapan["id"])["packets"] if x["id"] == p["id"])
-        assert abs(pk["weight"] - 34.0) < 0.02
+        assert abs(pk["weight"] - 36.0) < 0.02
         assert pk["pcs"] == 8
 
     def test_edit_issue_weight_keeps_kapan_balanced(self, admin, kapan):
-        p, e = self._received_laser(admin, kapan)  # issue 40 return 30 boil 2 rc 3
-        # change issue weight 40 -> 38, keep return 31 boil 2 rc 3 -> loss = 38 - 36 = 2
+        p, e = self._received_laser(admin, kapan)  # issue 40 boil 35 rc 3
+        # change issue weight 40 -> 38, keep boil 35 rc 3 -> loss = 38 - 35 = 3
         r = admin.put(f"{API}/entries/{e['id']}",
-                      json={"weight": 38.0, "return_weight": 31.0,
-                            "return_boil": 2.0, "rc": 3.0}, timeout=TIMEOUT)
+                      json={"weight": 38.0, "return_boil": 35.0, "rc": 3.0}, timeout=TIMEOUT)
         assert r.status_code == 200, r.text
         d = r.json()
         assert abs(d["weight"] - 38.0) < 0.02
-        assert abs(d["loss"] - 2.0) < 0.02
+        assert abs(d["loss"] - 3.0) < 0.02
         # kapan reconciliation must stay balanced (difference ~0 within tolerance)
         rep = report(admin, kapan["id"])["report"]
         assert rep.get("balanced") is True, rep
@@ -845,9 +867,10 @@ class TestEntryEdit:
         assert "created weight" in r.json()["detail"].lower()
 
     def test_edit_return_exceeds_issue_rejected(self, admin, kapan):
-        p, e = self._received_laser(admin, kapan, weight=38.0, return_weight=31.0)
+        p, e = self._received_laser(admin, kapan, weight=38.0, return_weight=31.0, boil=35.0, rc=3.0)
+        # editing boil above issue is rejected
         r = admin.put(f"{API}/entries/{e['id']}",
-                      json={"return_weight": 40.0}, timeout=TIMEOUT)
+                      json={"return_boil": 40.0}, timeout=TIMEOUT)
         assert r.status_code == 400
         assert "cannot exceed" in r.json()["detail"].lower()
 
@@ -861,19 +884,19 @@ class TestEntryEdit:
     def test_edit_filling_return_less_than_issue_rejected(self, admin, kapan):
         p = mk_packet(admin, kapan["id"], 4, 20.0).json()
         e1 = issue(admin, p["id"], "filling").json()
-        # filling: return must be >= issue
-        r = receive(admin, e1["id"], return_pcs=4, return_weight=22.0)
+        # filling: boil must be >= issue
+        r = receive(admin, e1["id"], return_pcs=4, return_weight=22.0, return_boil=22.0)
         assert r.status_code == 200, r.text
         er = r.json()
         assert abs(er.get("weight_gain", 0) - 2.0) < 0.02
-        # Edit return down to 18 (< issue 20) — reject
+        # Edit boil down to 18 (< issue 20) — reject
         bad = admin.put(f"{API}/entries/{er['id']}",
-                        json={"return_weight": 18.0}, timeout=TIMEOUT)
+                        json={"return_boil": 18.0}, timeout=TIMEOUT)
         assert bad.status_code == 400
         assert "filling" in bad.json()["detail"].lower()
-        # Edit return higher (25) — accept, weight_gain=5
+        # Edit boil higher (25) — accept, weight_gain=5
         ok = admin.put(f"{API}/entries/{er['id']}",
-                       json={"return_weight": 25.0}, timeout=TIMEOUT)
+                       json={"return_boil": 25.0}, timeout=TIMEOUT)
         assert ok.status_code == 200, ok.text
         assert abs(ok.json()["weight_gain"] - 5.0) < 0.02
 
@@ -881,22 +904,22 @@ class TestEntryEdit:
         """Editing an older entry must not overwrite the packet's later state."""
         p = mk_packet(admin, kapan["id"], 5, 25.0).json()
         e1 = issue(admin, p["id"], "sarine").json()
-        r1 = receive(admin, e1["id"], return_pcs=5, return_weight=24.0)
+        r1 = receive(admin, e1["id"], return_pcs=5, return_weight=24.0, return_boil=24.0)
         assert r1.status_code == 200, r1.text
         e2 = issue(admin, p["id"], "laser", hw="5x5", expected_return_pcs=4).json()
         r2 = receive(admin, e2["id"], return_pcs=4, return_weight=20.0,
-                     return_boil=1.0, rc=1.0)
+                     return_boil=22.0, rc=1.0)
         assert r2.status_code == 200, r2.text
-        # After the laser return, packet current weight should be 20
+        # After the laser return, packet current weight should be net = 22-1 = 21
         pk_before = next(x for x in report(admin, kapan["id"])["packets"] if x["id"] == p["id"])
-        assert abs(pk_before["weight"] - 20.0) < 0.02
+        assert abs(pk_before["weight"] - 21.0) < 0.02
 
-        # Edit the OLDER sarine return_weight — packet current must NOT change
+        # Edit the OLDER sarine boil — packet current must NOT change
         upd = admin.put(f"{API}/entries/{r1.json()['id']}",
-                        json={"return_weight": 23.0}, timeout=TIMEOUT)
+                        json={"return_boil": 23.0}, timeout=TIMEOUT)
         assert upd.status_code == 200, upd.text
         pk_after = next(x for x in report(admin, kapan["id"])["packets"] if x["id"] == p["id"])
-        assert abs(pk_after["weight"] - 20.0) < 0.02, "editing older entry must not touch packet current wt"
+        assert abs(pk_after["weight"] - 21.0) < 0.02, "editing older entry must not touch packet current wt"
         assert pk_after["pcs"] == 4
 
     def test_edit_rbac_403_for_no_edit_user(self, admin, kapan, restricted_user):
@@ -1000,7 +1023,7 @@ class TestPacketDelete:
         assert d.status_code == 400
         assert "entries" in d.json()["detail"].lower()
         # even after receive, still has an entry
-        rec = receive(admin, e.json()["id"], return_pcs=1, return_weight=4.5)
+        rec = receive(admin, e.json()["id"], return_pcs=1, return_weight=4.5, return_boil=4.5)
         assert rec.status_code == 200
         d2 = admin.delete(f"{API}/packets/{p['id']}", timeout=TIMEOUT)
         assert d2.status_code == 400
@@ -1018,3 +1041,196 @@ class TestPacketDelete:
     def test_delete_nonexistent_packet_404(self, admin):
         r = admin.delete(f"{API}/packets/64b7f9c2f1a2b3c4d5e6f7a8", timeout=TIMEOUT)
         assert r.status_code == 404
+
+
+# ---------------------------------------------------------------- iter 10: new loss formula
+class TestNewFormula:
+    """New loss maths: Loss = Issue - Return Boil (non-filling), Net = Boil - RC - Nail RC.
+    Return Weight is informational only. Filling: Weight Gain = Boil - Issue."""
+
+    @pytest.fixture
+    def kapan(self, admin):
+        k = new_kapan(admin, 200.0, 20)
+        yield k
+        admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+    def test_worked_example_20_25(self, admin, kapan):
+        """User's exact example: 20.25 / rw 18.00 / boil 16.00 / rc 5.00 / nail 1.00
+        -> loss 4.25, loss_pct 20.99, net 10.00, return_pct 88.89."""
+        p = mk_packet(admin, kapan["id"], 4, 20.25).json()
+        e = issue(admin, p["id"], "laser", hw="5x5").json()
+        r = receive(admin, e["id"], return_pcs=4, return_weight=18.00,
+                    return_boil=16.00, rc=5.00, nail_rc=1.00)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert abs(d["loss"] - 4.25) < 0.01, d
+        assert abs(d["loss_pct"] - 20.99) < 0.05, d
+        assert abs(d["net_weight"] - 10.00) < 0.01, d
+        assert abs(d["return_pct"] - 88.89) < 0.05, d
+        # packet carries net (10.00), NOT return_weight (18) and NOT boil (16)
+        pk = next(x for x in report(admin, kapan["id"])["packets"] if x["id"] == p["id"])
+        assert abs(pk["weight"] - 10.00) < 0.01
+        # kapan balanced
+        rep = report(admin, kapan["id"])["report"]
+        assert rep["balanced"] is True and rep["difference"] == 0.0, rep
+        assert rep["rc"] == 5.00 and rep["nail_rc"] == 1.00
+        # boil is reported for information but NOT in the accounted sum
+        assert rep["boil"] == 16.00
+
+    def test_return_weight_is_informational_only(self, admin, kapan):
+        """Changing return_weight alone must NOT alter loss / net_weight / packet carry."""
+        p = mk_packet(admin, kapan["id"], 4, 20.0).json()
+        e = issue(admin, p["id"], "laser").json()
+        r = receive(admin, e["id"], return_pcs=4, return_weight=18.0,
+                    return_boil=17.0, rc=2.0)
+        base = r.json()
+        assert abs(base["loss"] - 3.0) < 0.01  # 20-17
+        assert abs(base["net_weight"] - 15.0) < 0.01  # 17-2
+
+        upd = admin.put(f"{API}/entries/{base['id']}",
+                        json={"return_weight": 19.5}, timeout=TIMEOUT)
+        d = upd.json()
+        assert abs(d["loss"] - 3.0) < 0.01
+        assert abs(d["net_weight"] - 15.0) < 0.01
+        pk = next(x for x in report(admin, kapan["id"])["packets"] if x["id"] == p["id"])
+        assert abs(pk["weight"] - 15.0) < 0.01
+        # only return_pct changes
+        assert abs(d["return_pct"] - 97.5) < 0.05  # 19.5/20
+
+    def test_rc_and_nail_rc_are_allocations_out_of_boil(self, admin, kapan):
+        """RC/Nail RC come OUT of the boil — must not be double-counted and boil is NOT
+        part of the accounted sum."""
+        p = mk_packet(admin, kapan["id"], 4, 20.25).json()
+        e = issue(admin, p["id"], "laser").json()
+        r = receive(admin, e["id"], return_pcs=4, return_weight=18.0,
+                    return_boil=16.0, rc=5.0, nail_rc=1.0)
+        assert r.status_code == 200, r.text
+        rep = report(admin, kapan["id"])["report"]
+        # kapan 200 = 20.25 packet + 179.75 unpacketed
+        # for our packet: rc=5, nail=1, loss=4.25, packet holds 10.00
+        assert rep["rc"] == 5.00
+        assert rep["nail_rc"] == 1.00
+        assert rep["laser_loss"] == 4.25
+        assert rep["balanced"] is True and rep["difference"] == 0.0, rep
+
+    def test_boil_mandatory_and_over_issue(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 2, 20.25).json()
+        e = issue(admin, p["id"], "laser").json()
+        # missing/zero boil
+        r0 = receive(admin, e["id"], return_pcs=2, return_weight=18.0)
+        assert r0.status_code == 400
+        assert "greater than 0" in r0.json()["detail"].lower()
+        # boil > issue
+        rov = receive(admin, e["id"], return_pcs=2, return_weight=18.0, return_boil=25.0)
+        assert rov.status_code == 400
+        detail = rov.json()["detail"].lower()
+        assert "cannot exceed" in detail and "20.25" in detail
+
+    def test_rc_nail_exceed_boil_rejected(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 2, 20.25).json()
+        e = issue(admin, p["id"], "laser").json()
+        r = receive(admin, e["id"], return_pcs=2, return_weight=18.0,
+                    return_boil=16.0, rc=20.0)
+        assert r.status_code == 400
+        assert "cannot exceed the return boil" in r.json()["detail"].lower()
+        r2 = receive(admin, e["id"], return_pcs=2, return_weight=18.0,
+                     return_boil=16.0, rc=10.0, nail_rc=7.0)
+        assert r2.status_code == 400
+        assert "cannot exceed the return boil" in r2.json()["detail"].lower()
+
+    def test_filling_gain_off_boil(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 2, 10.0).json()
+        e = issue(admin, p["id"], "filling").json()
+        # boil 10.60 vs issue 10.00 -> gain 0.60
+        good = receive(admin, e["id"], return_pcs=2, return_weight=10.5, return_boil=10.60)
+        assert good.status_code == 200, good.text
+        g = good.json()
+        assert abs(g["weight_gain"] - 0.60) < 0.01
+        assert g["loss"] == 0.0
+
+    def test_filling_boil_below_issue_rejected(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 2, 10.0).json()
+        e = issue(admin, p["id"], "filling").json()
+        bad = receive(admin, e["id"], return_pcs=2, return_weight=10.0, return_boil=9.5)
+        assert bad.status_code == 400
+        assert "cannot be less" in bad.json()["detail"].lower()
+
+    def test_sarine_has_boil_and_loss(self, admin, kapan):
+        """Loss now applies to sarine (and every non-filling process)."""
+        p = mk_packet(admin, kapan["id"], 2, 10.0).json()
+        e = issue(admin, p["id"], "sarine").json()
+        r = receive(admin, e["id"], return_pcs=2, return_weight=9.5, return_boil=9.5)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert abs(d["loss"] - 0.5) < 0.01
+        assert abs(d["loss_pct"] - 5.0) < 0.05
+        rep = report(admin, kapan["id"])["report"]
+        # sarine bucket -> other_loss
+        assert abs(rep["other_loss"] - 0.5) < 0.01
+
+    def test_full_chain_with_allocations_stays_balanced(self, admin, kapan):
+        """Sarine -> Laser -> Shape -> Polish -> Table Polish -> Nats -> Filling with
+        boil, RC and Nail RC allocations along the way. Difference must stay 0.00."""
+        # Fresh kapan so we can seed a single packet
+        k = new_kapan(admin, 50.0, 5)
+        try:
+            p = mk_packet(admin, k["id"], 5, 50.0).json()
+            chain = [
+                # (process, boil, rc, nail_rc, hw, ds)
+                ("sarine", 48.0, 0.0, 0.0, "", ""),
+                # after sarine: net=48
+                ("laser", 46.0, 1.0, 0.0, "5x5", ""),
+                # after laser: net=45
+                ("shape", 43.0, 0.5, 0.5, "", ""),
+                # net=42
+                ("polish", 40.0, 1.0, 0.0, "", "Double"),
+                # net=39
+                ("table_polish", 38.0, 0.0, 0.0, "", ""),
+                # net=38
+                ("nats", 37.0, 0.5, 0.0, "", ""),
+                # net=36.5
+            ]
+            for proc, boil, rc, nail, hw, ds in chain:
+                e = issue(admin, p["id"], proc, hw=hw, ds=ds).json()
+                rec = receive(admin, e["id"], return_pcs=5,
+                              return_weight=boil, return_boil=boil, rc=rc, nail_rc=nail)
+                assert rec.status_code == 200, f"{proc}: {rec.text}"
+                rep = report(admin, k["id"])["report"]
+                assert rep["difference"] == 0.0, f"unbalanced after {proc}: {rep}"
+                assert rep["balanced"] is True
+
+            # Filling last — adds weight
+            ef = issue(admin, p["id"], "filling").json()
+            recf = receive(admin, ef["id"], return_pcs=5, return_weight=37.5, return_boil=37.5)
+            assert recf.status_code == 200, recf.text
+            assert abs(recf.json()["weight_gain"] - 1.0) < 0.01  # 37.5 - 36.5
+            rep = report(admin, k["id"])["report"]
+            assert rep["difference"] == 0.0, f"unbalanced after filling: {rep}"
+            assert rep["balanced"] is True
+        finally:
+            admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+    def test_edit_boil_recomputes_and_syncs_packet(self, admin, kapan):
+        """Editing return_boil in an already-received entry recomputes loss and net,
+        and re-syncs the packet's weight if it's the latest entry."""
+        p = mk_packet(admin, kapan["id"], 4, 20.0).json()
+        e = issue(admin, p["id"], "laser").json()
+        r = receive(admin, e["id"], return_pcs=4, return_weight=18.0,
+                    return_boil=17.0, rc=2.0)
+        assert r.status_code == 200
+        # Edit boil to 19 -> loss = 20 - 19 = 1, net = 19 - 2 = 17
+        upd = admin.put(f"{API}/entries/{r.json()['id']}",
+                        json={"return_boil": 19.0}, timeout=TIMEOUT)
+        assert upd.status_code == 200, upd.text
+        d = upd.json()
+        assert abs(d["loss"] - 1.0) < 0.01
+        assert abs(d["net_weight"] - 17.0) < 0.01
+        pk = next(x for x in report(admin, kapan["id"])["packets"] if x["id"] == p["id"])
+        assert abs(pk["weight"] - 17.0) < 0.01
+        # edit rc splits boil differently: rc=4 -> net=15
+        upd2 = admin.put(f"{API}/entries/{r.json()['id']}",
+                         json={"rc": 4.0}, timeout=TIMEOUT)
+        assert upd2.status_code == 200, upd2.text
+        assert abs(upd2.json()["net_weight"] - 15.0) < 0.01
+        pk2 = next(x for x in report(admin, kapan["id"])["packets"] if x["id"] == p["id"])
+        assert abs(pk2["weight"] - 15.0) < 0.01

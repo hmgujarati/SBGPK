@@ -60,7 +60,8 @@ def r2(v) -> float:
 
 
 def compute_entry(doc: dict) -> dict:
-    """Fill derived fields on a process entry document."""
+    """Fill derived fields. Loss comes off the Return Boil; RC / Nail RC are
+    allocations out of the boil, and whatever is left carries forward."""
     process = doc.get("process")
     weight = r2(doc.get("weight"))
     pcs = int(doc.get("pcs") or 0)
@@ -68,7 +69,7 @@ def compute_entry(doc: dict) -> dict:
     doc["weight"] = weight
 
     if not doc.get("returned"):
-        for k in ("loss", "loss_pct", "return_pct", "weight_gain"):
+        for k in ("loss", "loss_pct", "return_pct", "weight_gain", "net_weight"):
             doc[k] = 0.0
         return doc
 
@@ -78,17 +79,42 @@ def compute_entry(doc: dict) -> dict:
     nail_rc = r2(doc.get("nail_rc"))
     doc["return_weight"], doc["return_boil"], doc["rc"], doc["nail_rc"] = rw, boil, rc, nail_rc
 
-    accounted = rw + boil + rc + nail_rc
+    doc["net_weight"] = r2(boil - rc - nail_rc)
     if process == "filling":
-        doc["weight_gain"] = r2(rw - weight)
+        doc["weight_gain"] = r2(boil - weight)
         doc["loss"] = 0.0
         doc["loss_pct"] = 0.0
     else:
         doc["weight_gain"] = 0.0
-        doc["loss"] = r2(weight - accounted)
+        doc["loss"] = r2(weight - boil)
         doc["loss_pct"] = r2((doc["loss"] / weight * 100) if weight else 0)
     doc["return_pct"] = r2((rw / weight * 100) if weight else 0)
     return doc
+
+
+def validate_return(process: str, issued: float, payload_like: dict) -> None:
+    """Shared guard for receiving and editing a return."""
+    boil = r2(payload_like.get("return_boil"))
+    rc = r2(payload_like.get("rc"))
+    nail_rc = r2(payload_like.get("nail_rc"))
+    if boil <= 0:
+        raise HTTPException(status_code=400, detail="Return boil must be greater than 0")
+    if process == "filling":
+        if boil < issued - 0.001:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Filling adds weight — return boil cannot be less than issued {issued:.2f} cts",
+            )
+    elif boil > issued + 0.001:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Return boil ({boil:.2f}) cannot exceed issued weight {issued:.2f} cts",
+        )
+    if rc + nail_rc > boil + 0.001:
+        raise HTTPException(
+            status_code=400,
+            detail=f"RC + Nail RC ({rc + nail_rc:.2f}) cannot exceed the return boil {boil:.2f} cts",
+        )
 
 
 def serialize(doc: dict) -> dict:
@@ -312,7 +338,7 @@ async def build_report(kapan_id: ObjectId, kapan: dict) -> dict:
     unpacketed = r2(kapan_weight - packeted)
 
     accounted = r2(
-        b["rc"] + b["nail_rc"] + b["boil"] + b["laser_loss"] + b["shape_ghat_loss"]
+        b["rc"] + b["nail_rc"] + b["laser_loss"] + b["shape_ghat_loss"]
         + b["polish_loss"] + b["nats_loss"] + b["other_loss"] + in_process_weight + polish_weight
         + stock_weight + unpacketed - b["filling_gain"]
     )
@@ -766,21 +792,7 @@ async def receive_entry(entry_id: str, payload: EntryReturn, user: dict = Depend
         raise HTTPException(status_code=400, detail="This packet has already been received")
 
     issued_weight = r2(entry.get("weight"))
-    rw = r2(payload.return_weight)
-    if rw <= 0:
-        raise HTTPException(status_code=400, detail="Return weight must be greater than 0")
-    accounted = rw + r2(payload.return_boil) + r2(payload.rc) + r2(payload.nail_rc)
-    if entry.get("process") == "filling":
-        if rw < issued_weight - 0.001:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Filling adds weight — return weight cannot be less than issued {issued_weight:.2f} cts",
-            )
-    elif accounted > issued_weight + 0.001:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Return weight + boil + RC ({accounted:.2f}) cannot exceed issued weight {issued_weight:.2f} cts",
-        )
+    validate_return(entry.get("process"), issued_weight, payload.model_dump())
 
     entry.update({k: v for k, v in payload.model_dump().items() if v is not None})
     entry["returned"] = True
@@ -790,13 +802,14 @@ async def receive_entry(entry_id: str, payload: EntryReturn, user: dict = Depend
     await db.entries.update_one({"_id": _id}, {"$set": entry})
     entry["_id"] = _id
 
+    net = r2(entry.get("net_weight"))
     await db.packets.update_one(
         {"_id": entry["packet_id"]},
         {"$set": {
             "status": "in_stock",
-            "weight": rw,
+            "weight": net,
             "pcs": int(payload.return_pcs or 0),
-            "size": r2(rw / payload.return_pcs) if payload.return_pcs else 0.0,
+            "size": r2(net / payload.return_pcs) if payload.return_pcs else 0.0,
             "last_process": entry.get("process"),
             "current_process": None,
         }},
@@ -844,26 +857,12 @@ async def update_entry(entry_id: str, payload: EntryUpdate, user: dict = Depends
         )
 
     if entry.get("returned"):
-        rw = r2(entry.get("return_weight"))
-        if rw <= 0:
-            raise HTTPException(status_code=400, detail="Return weight must be greater than 0")
         if entry.get("process") != "laser" and int(entry.get("return_pcs") or 0) > int(entry.get("pcs") or 0):
             raise HTTPException(
                 status_code=400,
                 detail=f"Return pcs cannot exceed issued pcs ({int(entry.get('pcs') or 0)})",
             )
-        accounted = rw + r2(entry.get("return_boil")) + r2(entry.get("rc")) + r2(entry.get("nail_rc"))
-        if entry.get("process") == "filling":
-            if rw < issued - 0.001:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Filling adds weight — return weight cannot be less than issued {issued:.2f} cts",
-                )
-        elif accounted > issued + 0.001:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Return weight + boil + RC ({accounted:.2f}) cannot exceed issued weight {issued:.2f} cts",
-            )
+        validate_return(entry.get("process"), issued, entry)
 
     compute_entry(entry)
     entry["edited_by"] = user.get("name")
@@ -880,7 +879,7 @@ async def update_entry(entry_id: str, payload: EntryUpdate, user: dict = Depends
     if not newer:
         if entry.get("returned"):
             pcs = int(entry.get("return_pcs") or 0)
-            wt = r2(entry.get("return_weight"))
+            wt = r2(entry.get("net_weight"))
             last_process = entry.get("process")
             status = "in_stock"
         else:

@@ -100,7 +100,7 @@ export default function KapanDetail() {
         <div className="flex flex-wrap gap-x-6 gap-y-1">
           <span>Un-packeted: <b className="tabular-nums" data-testid="rep-unpacketed">{ct(p.unpacketed_weight)}</b></span>
           <span>Stock (pre-polish): <b className="tabular-nums">{ct(p.stock_weight)}</b></span>
-          <span>Return Boil: <b className="tabular-nums">{ct(p.boil)}</b></span>
+          <span>Return Boil (total): <b className="tabular-nums">{ct(p.boil)}</b></span>
           <span>Nats Loss: <b className="tabular-nums">{ct(p.nats_loss)}</b></span>
           <span>Sarine / Marking Loss: <b className="tabular-nums" data-testid="rep-other-loss">{ct(p.other_loss)}</b></span>
           <span>Filling Gain: <b className="tabular-nums">{ct(p.filling_gain)}</b></span>

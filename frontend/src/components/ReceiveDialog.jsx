@@ -40,16 +40,19 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
   );
 
   const issued = Number(entry?.weight || 0);
-  const accounted =
-    Number(v.return_weight || 0) + Number(v.return_boil || 0) + Number(v.rc || 0) + Number(v.nail_rc || 0);
+  const boil = Number(v.return_boil || 0);
+  const alloc = Number(v.rc || 0) + Number(v.nail_rc || 0);
   const invalid =
-    process === "filling"
-      ? Number(v.return_weight || 0) > 0 && Number(v.return_weight) < issued - 0.001
-      : accounted > issued + 0.001;
-  const warning =
-    process === "filling"
-      ? `Filling adds weight — return weight cannot be less than ${issued.toFixed(2)} cts`
-      : `Return Weight + Return Boil + RC (${accounted.toFixed(2)}) cannot exceed issued ${issued.toFixed(2)} cts`;
+    !boil ||
+    (process === "filling" ? boil < issued - 0.001 : boil > issued + 0.001) ||
+    alloc > boil + 0.001;
+  const warning = !boil
+    ? "Return boil must be greater than 0"
+    : alloc > boil + 0.001
+      ? `RC + Nail RC (${alloc.toFixed(2)}) cannot exceed the return boil ${boil.toFixed(2)} cts`
+      : process === "filling"
+        ? `Filling adds weight — return boil cannot be less than ${issued.toFixed(2)} cts`
+        : `Return boil (${boil.toFixed(2)}) cannot exceed issued ${issued.toFixed(2)} cts`;
 
   const submit = async () => {
     setBusy(true);
@@ -101,7 +104,7 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
               onChange={(e) => setV({ ...v, return_pcs: e.target.value })} className={inp} />
           </Field>
           <Field label="Return Weight">
-            <Input data-testid="receive-weight-input" type="text" inputMode="decimal" value={v.return_weight ?? ""}
+            <Input data-testid="receive-return_weight-input" type="text" inputMode="decimal" value={v.return_weight ?? ""}
               onChange={(e) => setV({ ...v, return_weight: dec2(e.target.value) })} className={inp} />
           </Field>
           {cfg.ret.map((f) => (
@@ -122,7 +125,7 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
           </p>
         )}
 
-        <div className="grid grid-cols-3 gap-2 border border-[#B4975A]/40 bg-[#B4975A]/5 p-3 text-xs">
+        <div className="grid grid-cols-2 gap-2 border border-[#B4975A]/40 bg-[#B4975A]/5 p-3 text-xs sm:grid-cols-4">
           {process === "filling" ? (
             <div data-testid="calc-weight-gain">
               <span className="text-zinc-500">Weight Gain</span>
@@ -131,7 +134,7 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
           ) : (
             <>
               <div data-testid="calc-loss">
-                <span className="text-zinc-500">Loss (auto)</span>
+                <span className="text-zinc-500">Loss (issue − boil)</span>
                 <div className="font-heading text-base font-bold tabular-nums text-[#DC2626]">{ct(calc.loss)}</div>
               </div>
               <div data-testid="calc-loss-pct">
@@ -144,11 +147,15 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
             <span className="text-zinc-500">Return %</span>
             <div className="font-heading text-base font-bold tabular-nums">{ct(calc.return_pct)}%</div>
           </div>
+          <div data-testid="calc-net-weight">
+            <span className="text-zinc-500">Carries forward</span>
+            <div className="font-heading text-base font-bold tabular-nums text-[#16A34A]">{ct(calc.net)}</div>
+          </div>
         </div>
 
         <DialogFooter>
           <Button data-testid="receive-submit-button" onClick={submit}
-            disabled={busy || invalid || !Number(v.return_weight || 0)}
+            disabled={busy || invalid || !Number(v.return_boil || 0)}
             className="h-10 rounded-none bg-zinc-900 text-xs font-semibold uppercase tracking-widest">
             {busy ? "Saving…" : "Confirm Receive"}
           </Button>

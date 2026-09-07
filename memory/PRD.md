@@ -74,6 +74,14 @@ Live kapan report: Kapan Weight = RC | Nail RC | Laser Loss | Polish Loss | Shap
 - Root cause of the reported bug: the only trash on a register deleted the *jangad entry*, which by design returns the packet to stock, so the packet (and its allocated weight) survived and Un-packeted stayed at 0.00
 - "Print labels (n)" moved into the register header; test suite now **59 passing**
 
+## Iteration 10 — loss now comes off Return Boil (2026-06)
+- **New maths**: `Loss = Issue Weight − Return Boil`, `Loss % = Loss / Issue × 100`. Return Weight is stored for reference only and drives just the informational Return %
+- **RC / Nail RC are allocations out of the boil**: `Net Forward = Boil − RC − Nail RC`, and that net is the weight the packet carries into the next process. Both fields are available on every process
+- Return Boil is now a receive field on **all nine processes**; Filling's gain is `Boil − Issue`
+- Guards: boil required and ≤ issue (≥ issue for Filling), RC + Nail RC ≤ boil
+- Reconciliation identity drops boil (it is no longer double counted): kapan = RC + Nail RC + all losses + in-process + polish weight + stock + un-packeted − filling gain
+- Registers renamed "Boil" → **Return Boil** and gained a **Net Fwd** column; test suite now **69 passing**
+
 ## Backlog
 - P1: barcode on each packet — scan to issue (print jangad) and scan to receive (opens the return popup)
 - P1: validate issued weight against kapan remaining weight; prevent duplicate open issue per stage

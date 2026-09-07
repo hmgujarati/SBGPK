@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 10 — new loss formula (loss = issue − return_boil, net_forward = boil − rc − nail_rc, return_weight informational, filling gain = boil − issue). Updated 10 pre-existing tests in /app/backend/tests/backend_test.py to match the new rule and added a new TestNewFormula class (10 tests) covering the exact worked example (20.25 / boil 16 / rc 5 / nail 1 -> loss 4.25, loss_pct 20.99, net 10.00, return_pct 88.89 when return_weight=18), return_weight-is-informational, RC/Nail RC as boil allocations, mandatory/over-issue boil validation, rc+nail>boil rejection, filling gain off boil, filling boil-below-issue rejection, sarine loss now flowing into other_loss, a full Sarine->...->Nats->Filling chain with mixed RC/Nail RC allocations staying balanced at every step, and edit-boil recomputing loss+net+packet weight. Full suite 69/69 green. Frontend: verified end-to-end that opening the Receive dialog on a fresh Laser 20.25 entry with boil 16 and rc 5 produces Loss 4.25 / Loss% 20.99% / Carries forward 11.00 live in the calc block (data-testid calc-net-weight, calc-loss, calc-loss-pct), and the Confirm button stays gated on boil>0. Every process (sarine, marking, laser, shape, ghat, polish, table_polish, nats, filling) has F.boil in its ret config so a Return Boil input is present in each Receive dialog. Cleanup: deleted three stray TEST_ROUGH kapans and the UITEST kapan created for the UI check; user's real kapan 101.35 (with its open laser jangad at 20.25) was NOT touched.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ReceiveDialog (laser)", "issue": "Laser's ret config is [F.boil, F.rc, F.ls] and does NOT include F.nail_rc, so the user's worked example that specifies 'Nail RC 1.00' on a Laser entry cannot actually be entered from the UI on Laser (only shape/ghat have Nail/RC). Backend accepts nail_rc for any process so the field is silently 0 on laser/sarine/marking/polish/table_polish/nats/filling receives via UI. Consider adding F.nail_rc to laser (and possibly other) ret arrays if 'RC + Nail RC allocations' is meant to be process-agnostic per the review spec.", "selector": "[data-testid=\"receive-nail_rc-input\"] (absent on laser)", "priority": "MEDIUM"},
+      {"component": "ReceiveDialog", "issue": "Return Weight input's data-testid is 'receive-weight-input' while every other field follows the pattern 'receive-{key}-input' (e.g. receive-return_boil-input, receive-rc-input). Consider renaming to 'receive-return_weight-input' for consistency. Non-blocking.", "selector": "[data-testid=\"receive-weight-input\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Decide whether Laser's Receive dialog should expose Nail RC — the review's worked example (20.25 / boil 16 / rc 5 / nail 1 -> net 10.00) implies yes, but current processConfig only puts F.nail_rc on shape/ghat. Backend accepts it universally.",
+    "(Optional) Rename receive-weight-input -> receive-return_weight-input for testid consistency with the other fields."
+  ],
+  "critical_code_review_comments": [
+    "compute_entry / validate_return are cleanly shared between receive and update — good.",
+    "build_report correctly excludes b['boil'] from the accounted sum (kept purely informational) — matches the new reconciliation identity.",
+    "receive_entry and update_entry both set packet.weight from net_weight (boil − rc − nail_rc) — correct.",
+    "server.py still 1035 lines — splitting into domain routers remains a future maintainability win (not blocking)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (69/69)", "frontend": "core flow verified live (Loss/Loss%/Carries-forward preview correct on Laser)"},
+  "test_credentials": "admin@polki.com/admin123, staff@polki.com/staff123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Backend tests create their own TEST######/UITEST##### kapans and delete them in fixture teardown. I also manually deleted three orphaned TEST_ROUGH kapans left over from a previous failed run (TEST945457, TEST175402, TEST850108) so the register is clean. User's kapan 101.35 was not touched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 10 done. New formula fully covered by TestNewFormula (10 tests) + all pre-existing tests updated. Key testids on ReceiveDialog: receive-return_boil-input (every process), receive-rc-input, receive-weight-input (that's the RETURN WEIGHT field, note the naming inconsistency), receive-nail_rc-input (only on shape/ghat), calc-loss / calc-loss-pct / calc-return-pct / calc-net-weight, receive-warning, receive-submit-button. Confirm button is disabled unless boil>0 AND allocations<=boil AND boil<=issue (non-filling) / boil>=issue (filling). Backend reconciliation identity: kapan_weight = rc + nail_rc + laser_loss + shape_ghat_loss + polish_loss + nats_loss + other_loss + in_process + polish_weight + stock_weight + unpacketed − filling_gain (boil NOT included).",
+  "rca of the issue": "Not a bug hunt this iteration — this was a formula-change verification. The old rule (loss = issued − (return_weight + boil + rc + nail_rc), packet carrying return_weight, boil in the accounted sum) has been replaced with: loss = issue − boil (non-filling), net_forward = boil − rc − nail_rc (this becomes the packet's carried weight), weight_gain = boil − issue (filling), and return_weight / return_pct are pure information. build_report drops boil from the accounted sum accordingly. Pre-existing tests written to the OLD rule failed as expected and have been rewritten in-place."
+}

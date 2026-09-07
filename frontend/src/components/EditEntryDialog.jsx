@@ -47,14 +47,14 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
   );
 
   const issued = Number(v.weight || 0);
-  const accounted =
-    Number(v.return_weight || 0) + Number(v.return_boil || 0) + Number(v.rc || 0) + Number(v.nail_rc || 0);
+  const boil = Number(v.return_boil || 0);
+  const alloc = Number(v.rc || 0) + Number(v.nail_rc || 0);
   const invalid =
     !issued ||
     (entry?.returned &&
-      (process === "filling"
-        ? Number(v.return_weight || 0) < issued - 0.001
-        : accounted > issued + 0.001));
+      (!boil ||
+        (process === "filling" ? boil < issued - 0.001 : boil > issued + 0.001) ||
+        alloc > boil + 0.001));
 
   const submit = async () => {
     setBusy(true);
@@ -182,6 +182,10 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
                 <span className="text-zinc-500">Return %</span>
                 <div className="font-heading text-base font-bold tabular-nums">{ct(calc.return_pct)}%</div>
               </div>
+              <div data-testid="edit-calc-net">
+                <span className="text-zinc-500">Carries forward</span>
+                <div className="font-heading text-base font-bold tabular-nums text-[#16A34A]">{ct(calc.net)}</div>
+              </div>
             </div>
           </>
         )}
@@ -190,9 +194,13 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
           <p data-testid="edit-warning" className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-[#DC2626]">
             {!issued
               ? "Issue weight must be greater than 0"
-              : process === "filling"
-                ? `Filling adds weight — return weight cannot be less than ${issued.toFixed(2)} cts`
-                : `Return Weight + Return Boil + RC (${accounted.toFixed(2)}) cannot exceed issued ${issued.toFixed(2)} cts`}
+              : !boil
+                ? "Return boil must be greater than 0"
+                : alloc > boil + 0.001
+                  ? `RC + Nail RC (${alloc.toFixed(2)}) cannot exceed the return boil ${boil.toFixed(2)} cts`
+                  : process === "filling"
+                    ? `Filling adds weight — return boil cannot be less than ${issued.toFixed(2)} cts`
+                    : `Return boil (${boil.toFixed(2)}) cannot exceed issued ${issued.toFixed(2)} cts`}
           </p>
         )}
 
