@@ -167,9 +167,11 @@ class TestPackets:
         assert r.status_code == 400
 
     def test_packets_in_stock_filter(self, admin, kapan):
-        r = admin.get(f"{API}/packets", params={"status": "in_stock"}, timeout=TIMEOUT)
+        r = admin.get(f"{API}/packets", params={"status": "in_stock", "q": kapan["kapan_no"]}, timeout=TIMEOUT)
         assert r.status_code == 200
-        data = r.json()
+        body = r.json()
+        data = body["items"]
+        assert body["total"] >= len(data)
         assert all(p["status"] == "in_stock" for p in data)
         assert all("_id" not in p for p in data)
         assert any(p["kapan_no"] == kapan["kapan_no"] for p in data)
@@ -685,9 +687,9 @@ class TestJangads:
 
         # The dashboard aggregate must use distinct-jangad semantics, never per-row.
         dash = admin.get(f"{API}/dashboard", timeout=TIMEOUT).json()["open_jangads"]
-        all_open = admin.get(f"{API}/entries", params={"status": "open"}, timeout=TIMEOUT).json()
-        assert dash <= len(all_open), (
-            f"open_jangads={dash} exceeds open entry rows={len(all_open)} — not counting distinct jangads"
+        all_open = admin.get(f"{API}/entries", params={"status": "open"}, timeout=TIMEOUT).json()["total"]
+        assert dash <= all_open, (
+            f"open_jangads={dash} exceeds open entry rows={all_open} — not counting distinct jangads"
         )
 
 
@@ -999,7 +1001,8 @@ class TestPacketDelete:
         assert det["report"]["balanced"] is True
         assert det["report"]["difference"] == 0.0
         # not listed as in_stock packet anywhere
-        stock = admin.get(f"{API}/packets", params={"status": "in_stock"}, timeout=TIMEOUT).json()
+        stock = admin.get(f"{API}/packets",
+                          params={"status": "in_stock", "q": kapan["kapan_no"]}, timeout=TIMEOUT).json()["items"]
         assert not any(p["id"] == ids[0] for p in stock)
 
     def test_delete_issued_returned_via_jangad_delete_frees_weight(self, admin, kapan):

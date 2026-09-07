@@ -38,3 +38,29 @@ export const Empty = ({ text, testid }) => (
     {text}
   </div>
 );
+
+
+export const Pager = ({ page, limit, total, onPage, testid = "pager", label = "rows" }) => {
+  const pages = Math.max(1, Math.ceil(total / limit));
+  if (total <= limit) return null;
+  const from = (page - 1) * limit + 1;
+  const to = Math.min(page * limit, total);
+  const btn =
+    "border border-zinc-900 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider transition-colors hover:bg-zinc-900 hover:text-white disabled:cursor-not-allowed disabled:border-black/15 disabled:text-zinc-300 disabled:hover:bg-transparent disabled:hover:text-zinc-300";
+  return (
+    <div data-testid={testid} className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+      <span className="text-zinc-500">
+        Showing <b className="tabular-nums">{from}–{to}</b> of <b className="tabular-nums">{total}</b> {label}
+      </span>
+      <div className="flex items-center gap-2">
+        <button data-testid={`${testid}-prev`} className={btn} disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          Prev
+        </button>
+        <span className="tabular-nums text-zinc-600">Page {page} / {pages}</span>
+        <button data-testid={`${testid}-next`} className={btn} disabled={page >= pages} onClick={() => onPage(page + 1)}>
+          Next
+        </button>
+      </div>
+    </div>
+  );
+};

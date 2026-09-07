@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Plus, MagnifyingGlass, Trash } from "@phosphor-icons/react";
 import { api, apiError, ct, dec2, today } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { PageHeader, Empty } from "@/components/Bits";
+import { PageHeader, Empty, Pager } from "@/components/Bits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,15 +22,31 @@ const blank = { date: today(), kapan_no: "", type: "", pcs: "", weight: "", note
 export default function Kapans() {
   const { can } = useAuth();
   const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [srvTotals, setSrvTotals] = useState({});
+  const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(blank);
   const [busy, setBusy] = useState(false);
+  const LIMIT = 100;
 
-  const load = () => api.get("/kapans").then((r) => setRows(r.data)).catch((e) => toast.error(apiError(e)));
+  const load = () =>
+    api.get("/kapans", { params: { q: q || undefined, page, limit: LIMIT } })
+      .then((r) => {
+        setRows(r.data.items);
+        setTotal(r.data.total);
+        setSrvTotals(r.data.totals || {});
+      })
+      .catch((e) => toast.error(apiError(e)));
+
   useEffect(() => {
-    load();
-  }, []);
+    const t = setTimeout(load, q ? 300 : 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, page]);
+
+  useEffect(() => setPage(1), [q]);
 
   const size = useMemo(() => {
     const p = Number(form.pcs || 0);
@@ -70,28 +86,18 @@ export default function Kapans() {
     }
   };
 
-  const filtered = rows.filter(
-    (r) =>
-      !q ||
-      r.kapan_no?.toLowerCase().includes(q.toLowerCase()) ||
-      r.type?.toLowerCase().includes(q.toLowerCase())
-  );
+  const filtered = rows;
 
-  const totals = filtered.reduce(
-    (a, r) => {
-      const p = r.report || {};
-      a.weight += Number(r.weight || 0);
-      a.rc += p.rc || 0;
-      a.nail += p.nail_rc || 0;
-      a.laser += p.laser_loss || 0;
-      a.polish += p.polish_loss || 0;
-      a.shape += p.shape_ghat_loss || 0;
-      a.pol_w += p.polish_weight || 0;
-      a.inproc += p.in_process_weight || 0;
-      return a;
-    },
-    { weight: 0, rc: 0, nail: 0, laser: 0, polish: 0, shape: 0, pol_w: 0, inproc: 0 }
-  );
+  const totals = {
+    weight: srvTotals.weight || 0,
+    rc: srvTotals.rc || 0,
+    nail: srvTotals.nail_rc || 0,
+    laser: srvTotals.laser_loss || 0,
+    polish: srvTotals.polish_loss || 0,
+    shape: srvTotals.shape_ghat_loss || 0,
+    pol_w: srvTotals.polish_weight || 0,
+    inproc: srvTotals.in_process_weight || 0,
+  };
 
   return (
     <div data-testid="kapans-page">
@@ -235,7 +241,7 @@ export default function Kapans() {
                 );
               })}
               <tr className="bg-zinc-100 font-semibold" data-testid="kapan-totals-row">
-                <td className="px-2.5 py-2.5 uppercase tracking-wider" colSpan={4}>Total ({filtered.length})</td>
+                <td className="px-2.5 py-2.5 uppercase tracking-wider" colSpan={4}>Total ({total})</td>
                 <td className="px-2.5 py-2.5 text-right tabular-nums">{ct(totals.weight)}</td>
                 <td colSpan={3} />
                 <td className="px-2.5 py-2.5 text-right tabular-nums">{ct(totals.rc)}</td>
@@ -251,6 +257,7 @@ export default function Kapans() {
           </table>
         </div>
       )}
+      <Pager page={page} limit={100} total={total} onPage={setPage} testid="kapans-pager" label="kapans" />
     </div>
   );
 }

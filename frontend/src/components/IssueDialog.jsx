@@ -17,11 +17,12 @@ const Field = ({ label, children }) => (
   </div>
 );
 
-export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
+export const IssueDialog = ({ open, onOpenChange, onDone }) => {
   const [form, setForm] = useState({ process: "sarine", date: today(), karigar_id: "", karigar_name: "" });
   const [cart, setCart] = useState([]);
   const [scan, setScan] = useState("");
   const [karigars, setKarigars] = useState([]);
+  const [stock, setStock] = useState({ items: [], total: 0 });
   const [busy, setBusy] = useState(false);
   const scanRef = useRef(null);
 
@@ -39,6 +40,9 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
     api.get("/karigars", { params: { process: form.process } })
       .then((r) => setKarigars(r.data))
       .catch(() => setKarigars([]));
+    api.get("/packets", { params: { status: "in_stock", process: form.process, limit: 200 } })
+      .then((r) => setStock({ items: r.data.items, total: r.data.total }))
+      .catch(() => setStock({ items: [], total: 0 }));
   }, [form.process, open]);
 
   // Changing the process empties the cart — a jangad only ever holds one process.
@@ -48,8 +52,8 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
   };
 
   const available = useMemo(
-    () => packets.filter((p) => p.process === form.process && !cart.some((c) => c.id === p.id)),
-    [packets, form.process, cart]
+    () => stock.items.filter((p) => !cart.some((c) => c.id === p.id)),
+    [stock, cart]
   );
 
   const totals = cart.reduce(
@@ -226,7 +230,8 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
 
         <details className="border border-black/10" data-testid="issue-available-wrap">
           <summary className="cursor-pointer bg-zinc-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
-            {PROCESS_LABELS[form.process]} stock — {available.length} packet(s) available
+            {PROCESS_LABELS[form.process]} stock — {stock.total} packet(s) available
+            {stock.total > stock.items.length && ` (showing first ${stock.items.length} — scan to add any other)`}
           </summary>
           <div className="max-h-[24vh] overflow-auto">
             <table className="w-full border-collapse text-xs" data-testid="issue-packet-table">

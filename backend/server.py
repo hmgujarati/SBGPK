@@ -12,6 +12,7 @@ from core import (
 )
 
 import os
+import re
 import logging
 from datetime import timedelta
 from typing import Optional
@@ -333,83 +334,158 @@ async def delete_karigar(karigar_id: str, user: dict = Depends(get_current_user)
 
 
 # ---------------------------------------------------------------- kapans
-async def build_report(kapan_id: ObjectId, kapan: dict) -> dict:
-    entries = await db.entries.find({"kapan_id": kapan_id}).to_list(5000)
-    packets = await db.packets.find({"kapan_id": kapan_id}).to_list(2000)
+async def build_reports(kapans: list) -> dict:
+    """Reconciliation reports for many kapans in 2 aggregations (not 2 queries each)."""
+    ids = [k["_id"] for k in kapans]
+    if not ids:
+        return {}
     stage_order = {p: i for i, p in enumerate(PROCESSES)}
     POLISHED = {"polish", "table_polish", "nats", "filling"}
-
-    b = {"rc": 0.0, "nail_rc": 0.0, "boil": 0.0, "laser_loss": 0.0, "shape_ghat_loss": 0.0,
-         "polish_loss": 0.0, "nats_loss": 0.0, "other_loss": 0.0, "filling_gain": 0.0}
     LOSS_BUCKET = {
         "sarine": "other_loss", "marking": "other_loss", "laser": "laser_loss",
         "shape": "shape_ghat_loss", "ghat": "shape_ghat_loss",
         "polish": "polish_loss", "table_polish": "polish_loss", "nats": "nats_loss",
     }
-    for e in entries:
-        if not e.get("returned"):
+
+    ent_rows = await db.entries.aggregate([
+        {"$match": {"kapan_id": {"$in": ids}}},
+        {"$group": {
+            "_id": {"k": "$kapan_id", "p": "$process", "r": "$returned"},
+            "rc": {"$sum": "$rc"}, "nail_rc": {"$sum": "$nail_rc"},
+            "boil": {"$sum": "$return_boil"}, "loss": {"$sum": "$loss"},
+            "gain": {"$sum": "$weight_gain"}, "n": {"$sum": 1},
+        }},
+    ]).to_list(None)
+
+    pkt_rows = await db.packets.aggregate([
+        {"$match": {"kapan_id": {"$in": ids}}},
+        {"$group": {
+            "_id": {"k": "$kapan_id", "s": "$status", "lp": "$last_process"},
+            "weight": {"$sum": "$weight"}, "original": {"$sum": "$original_weight"},
+            "pcs": {"$sum": "$pcs"}, "n": {"$sum": 1},
+        }},
+    ]).to_list(None)
+
+    acc = {
+        kid: {"b": {"rc": 0.0, "nail_rc": 0.0, "boil": 0.0, "laser_loss": 0.0, "shape_ghat_loss": 0.0,
+                    "polish_loss": 0.0, "nats_loss": 0.0, "other_loss": 0.0, "filling_gain": 0.0},
+              "open": set(), "done": set(), "entries_count": 0,
+              "in_process_weight": 0.0, "in_process_pcs": 0, "issued_count": 0,
+              "polish_weight": 0.0, "stock_weight": 0.0, "packeted": 0.0, "packet_count": 0}
+        for kid in ids
+    }
+
+    for row in ent_rows:
+        a = acc.get(row["_id"]["k"])
+        if not a:
             continue
-        b["rc"] += r2(e.get("rc"))
-        b["nail_rc"] += r2(e.get("nail_rc"))
-        b["boil"] += r2(e.get("return_boil"))
-        p = e.get("process")
-        if p == "filling":
-            b["filling_gain"] += r2(e.get("weight_gain"))
+        proc, returned = row["_id"]["p"], row["_id"]["r"]
+        a["entries_count"] += row["n"]
+        (a["done"] if returned else a["open"]).add(proc)
+        if not returned:
+            continue
+        a["b"]["rc"] += r2(row["rc"])
+        a["b"]["nail_rc"] += r2(row["nail_rc"])
+        a["b"]["boil"] += r2(row["boil"])
+        if proc == "filling":
+            a["b"]["filling_gain"] += r2(row["gain"])
         else:
-            b[LOSS_BUCKET.get(p, "other_loss")] += r2(e.get("loss"))
+            a["b"][LOSS_BUCKET.get(proc, "other_loss")] += r2(row["loss"])
 
-    issued = [p for p in packets if p.get("status") == "issued"]
-    in_stock = [p for p in packets if p.get("status") != "issued"]
-    in_process_weight = r2(sum(r2(p.get("weight")) for p in issued))
-    polish_weight = r2(sum(r2(p.get("weight")) for p in in_stock if p.get("last_process") in POLISHED))
-    stock_weight = r2(sum(r2(p.get("weight")) for p in in_stock if p.get("last_process") not in POLISHED))
-    packeted = r2(sum(r2(p.get("original_weight")) for p in packets))
-    kapan_weight = r2(kapan.get("weight"))
-    unpacketed = r2(kapan_weight - packeted)
+    for row in pkt_rows:
+        a = acc.get(row["_id"]["k"])
+        if not a:
+            continue
+        a["packet_count"] += row["n"]
+        a["packeted"] += r2(row["original"])
+        if row["_id"]["s"] == "issued":
+            a["in_process_weight"] += r2(row["weight"])
+            a["in_process_pcs"] += int(row["pcs"] or 0)
+            a["issued_count"] += row["n"]
+        elif row["_id"]["lp"] in POLISHED:
+            a["polish_weight"] += r2(row["weight"])
+        else:
+            a["stock_weight"] += r2(row["weight"])
 
-    accounted = r2(
-        b["rc"] + b["nail_rc"] + b["laser_loss"] + b["shape_ghat_loss"]
-        + b["polish_loss"] + b["nats_loss"] + b["other_loss"] + in_process_weight + polish_weight
-        + stock_weight + unpacketed - b["filling_gain"]
-    )
+    reports = {}
+    for kapan in kapans:
+        a = acc[kapan["_id"]]
+        b = a["b"]
+        kapan_weight = r2(kapan.get("weight"))
+        unpacketed = r2(kapan_weight - r2(a["packeted"]))
+        accounted = r2(
+            b["rc"] + b["nail_rc"] + b["laser_loss"] + b["shape_ghat_loss"] + b["polish_loss"]
+            + b["nats_loss"] + b["other_loss"] + a["in_process_weight"] + a["polish_weight"]
+            + a["stock_weight"] + unpacketed - b["filling_gain"]
+        )
+        report = {k: r2(v) for k, v in b.items()}
+        report.update({
+            "kapan_weight": kapan_weight,
+            "in_process_weight": r2(a["in_process_weight"]),
+            "in_process_pcs": a["in_process_pcs"],
+            "polish_weight": r2(a["polish_weight"]),
+            "stock_weight": r2(a["stock_weight"]),
+            "packeted_weight": r2(a["packeted"]),
+            "unpacketed_weight": unpacketed,
+            "accounted_weight": accounted,
+            "difference": r2(kapan_weight - accounted),
+            "packet_count": a["packet_count"],
+            "issued_count": a["issued_count"],
+            "entries_count": a["entries_count"],
+            "open_count": a["issued_count"],
+        })
+        report["balanced"] = abs(report["difference"]) <= 0.02
+        open_stages = sorted(a["open"], key=lambda p: stage_order.get(p, 99))
+        done_stages = sorted(a["done"], key=lambda p: stage_order.get(p, 99))
+        report["current_stage"] = open_stages[-1] if open_stages else (done_stages[-1] if done_stages else None)
+        report["current_stage_label"] = PROCESS_LABELS.get(report["current_stage"], "Not Started")
+        report["status"] = "In Process" if open_stages else ("Idle" if done_stages else "New")
+        reports[kapan["_id"]] = report
+    return reports
 
-    report = {k: r2(v) for k, v in b.items()}
-    report.update({
-        "kapan_weight": kapan_weight,
-        "in_process_weight": in_process_weight,
-        "in_process_pcs": sum(int(p.get("pcs") or 0) for p in issued),
-        "polish_weight": polish_weight,
-        "stock_weight": stock_weight,
-        "packeted_weight": packeted,
-        "unpacketed_weight": unpacketed,
-        "accounted_weight": accounted,
-        "difference": r2(kapan_weight - accounted),
-        "packet_count": len(packets),
-        "issued_count": len(issued),
-        "entries_count": len(entries),
-        "open_count": len(issued),
-    })
-    report["balanced"] = abs(report["difference"]) <= 0.02
 
-    open_stages = sorted({e.get("process") for e in entries if not e.get("returned")},
-                         key=lambda p: stage_order.get(p, 99))
-    done_stages = sorted({e.get("process") for e in entries if e.get("returned")},
-                         key=lambda p: stage_order.get(p, 99))
-    report["current_stage"] = open_stages[-1] if open_stages else (done_stages[-1] if done_stages else None)
-    report["current_stage_label"] = PROCESS_LABELS.get(report["current_stage"], "Not Started")
-    report["status"] = "In Process" if open_stages else ("Idle" if done_stages else "New")
-    return report
+async def build_report(kapan_id: ObjectId, kapan: dict) -> dict:
+    reports = await build_reports([{**kapan, "_id": kapan_id}])
+    return reports[kapan_id]
+
+
+def kapan_query(q: Optional[str]) -> dict:
+    if not q:
+        return {}
+    rx = {"$regex": re.escape(q), "$options": "i"}
+    return {"$or": [{"kapan_no": rx}, {"type": rx}]}
 
 
 @api.get("/kapans")
-async def list_kapans(user: dict = Depends(get_current_user)):
-    kapans = await db.kapans.find().sort("created_at", -1).to_list(1000)
-    out = []
-    for k in kapans:
-        item = serialize(k)
-        item["report"] = await build_report(k["_id"], k)
-        out.append(item)
-    return out
+async def list_kapans(
+    q: Optional[str] = None,
+    page: int = 1,
+    limit: int = 100,
+    user: dict = Depends(get_current_user),
+):
+    """One page of kapans with their reports, plus true totals across every match."""
+    query = kapan_query(q)
+    limit = max(1, min(limit, 500))
+    skip = max(0, (page - 1) * limit)
+    total = await db.kapans.count_documents(query)
+    kapans = await db.kapans.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    reports = await build_reports(kapans)
+
+    all_kapans = await db.kapans.find(query, {"weight": 1}).to_list(None)
+    all_reports = await build_reports(all_kapans) if total else {}
+    keys = ["rc", "nail_rc", "laser_loss", "shape_ghat_loss", "polish_loss",
+            "polish_weight", "in_process_weight", "stock_weight", "unpacketed_weight"]
+    totals = {k: r2(sum(rep.get(k, 0) for rep in all_reports.values())) for k in keys}
+    totals["weight"] = r2(sum(r2(k.get("weight")) for k in all_kapans))
+
+    return {
+        "items": [{**serialize(k), "report": reports[k["_id"]]} for k in kapans],
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "totals": totals,
+    }
+
 
 
 @api.post("/kapans")
@@ -472,18 +548,37 @@ async def delete_kapan(kapan_id: str, user: dict = Depends(get_current_user)):
 
 # ---------------------------------------------------------------- packets
 @api.get("/packets")
-async def list_packets(status: Optional[str] = None, user: dict = Depends(get_current_user)):
-    q = {"status": status} if status else {}
-    docs = await db.packets.find(q).sort("created_at", -1).to_list(3000)
-    kapans = {k["_id"]: k for k in await db.kapans.find().to_list(2000)}
-    out = []
+async def list_packets(
+    status: Optional[str] = None,
+    process: Optional[str] = None,
+    q: Optional[str] = None,
+    page: int = 1,
+    limit: int = 100,
+    user: dict = Depends(get_current_user),
+):
+    query = {}
+    if status:
+        query["status"] = status
+    if process:
+        query["process"] = process
+    if q:
+        rx = {"$regex": re.escape(q), "$options": "i"}
+        query["$or"] = [{"code": rx}, {"packet_no": rx}]
+    limit = max(1, min(limit, 1000))
+    skip = max(0, (page - 1) * limit)
+    total = await db.packets.count_documents(query)
+    docs = await db.packets.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    kapans = {k["_id"]: k for k in
+              await db.kapans.find({"_id": {"$in": list({d["kapan_id"] for d in docs})}}).to_list(None)}
+    items = []
     for d in docs:
         item = serialize(d)
         k = kapans.get(d.get("kapan_id"))
         item["kapan_no"] = k.get("kapan_no") if k else ""
         item["kapan_type"] = k.get("type") if k else ""
-        out.append(item)
-    return out
+        items.append(item)
+    return {"items": items, "total": total, "page": page, "limit": limit}
+
 
 
 @api.post("/kapans/{kapan_id}/packets")
@@ -793,25 +888,48 @@ async def next_jangad_no() -> str:
 async def list_entries(
     status: Optional[str] = None,
     process: Optional[str] = None,
+    q: Optional[str] = None,
+    page: int = 1,
+    limit: int = 100,
     user: dict = Depends(get_current_user),
 ):
-    q = {}
+    query = {}
     if status == "open":
-        q["returned"] = False
+        query["returned"] = False
     elif status == "closed":
-        q["returned"] = True
+        query["returned"] = True
     if process:
-        q["process"] = process
-    docs = await db.entries.find(q).sort("created_at", -1).to_list(3000)
-    kapans = {k["_id"]: k for k in await db.kapans.find().to_list(2000)}
-    out = []
+        query["process"] = process
+    if q:
+        rx = {"$regex": re.escape(q), "$options": "i"}
+        query["$or"] = [{"packet_no": rx}, {"jangad_no": rx}, {"karigar_name": rx}]
+    limit = max(1, min(limit, 1000))
+    skip = max(0, (page - 1) * limit)
+    total = await db.entries.count_documents(query)
+    docs = await db.entries.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    kapans = {k["_id"]: k for k in
+              await db.kapans.find({"_id": {"$in": list({d["kapan_id"] for d in docs})}}).to_list(None)}
+    items = []
     for d in docs:
         item = serialize(d)
         k = kapans.get(d.get("kapan_id"))
         item["kapan_no"] = k.get("kapan_no") if k else ""
         item["kapan_type"] = k.get("type") if k else ""
-        out.append(item)
-    return out
+        items.append(item)
+
+    stats_rows = await db.entries.aggregate([
+        {"$match": query},
+        {"$group": {"_id": "$returned", "n": {"$sum": 1}, "weight": {"$sum": "$weight"},
+                    "jangads": {"$addToSet": "$jangad_no"}}},
+    ]).to_list(None)
+    open_row = next((r for r in stats_rows if not r["_id"]), None)
+    stats = {
+        "jangads": len({j for r in stats_rows for j in r["jangads"] if j}),
+        "open": open_row["n"] if open_row else 0,
+        "open_weight": r2(open_row["weight"]) if open_row else 0.0,
+    }
+    return {"items": items, "total": total, "page": page, "limit": limit, "stats": stats}
+
 
 
 @api.get("/entries/lookup")
@@ -1047,32 +1165,42 @@ async def get_jangad(entry_id: str, user: dict = Depends(get_current_user)):
 # ---------------------------------------------------------------- dashboard
 @api.get("/dashboard")
 async def dashboard(user: dict = Depends(get_current_user)):
-    kapans = await db.kapans.find().to_list(2000)
-    entries = await db.entries.find().to_list(10000)
-    packets = await db.packets.find().to_list(5000)
-    total_weight = r2(sum(r2(k.get("weight")) for k in kapans))
-    in_process = r2(sum(r2(p.get("weight")) for p in packets if p.get("status") == "issued"))
-    total_loss = r2(sum(r2(e.get("loss")) for e in entries if e.get("returned")))
+    kapan_row = await db.kapans.aggregate([
+        {"$group": {"_id": None, "n": {"$sum": 1}, "weight": {"$sum": "$weight"}}}
+    ]).to_list(1)
+    pkt_rows = await db.packets.aggregate([
+        {"$group": {"_id": "$status", "n": {"$sum": 1}, "weight": {"$sum": "$weight"}}}
+    ]).to_list(None)
+    ent_rows = await db.entries.aggregate([
+        {"$group": {"_id": {"p": "$process", "r": "$returned"}, "n": {"$sum": 1},
+                    "weight": {"$sum": "$weight"}, "loss": {"$sum": "$loss"},
+                    "jangads": {"$addToSet": "$jangad_no"}}}
+    ]).to_list(None)
+
+    k = kapan_row[0] if kapan_row else {"n": 0, "weight": 0.0}
+    issued = next((r for r in pkt_rows if r["_id"] == "issued"), None)
     by_process = {}
     for p in PROCESSES:
-        rel = [e for e in entries if e.get("process") == p]
+        openr = next((r for r in ent_rows if r["_id"]["p"] == p and not r["_id"]["r"]), None)
+        closed = next((r for r in ent_rows if r["_id"]["p"] == p and r["_id"]["r"]), None)
         by_process[p] = {
             "label": PROCESS_LABELS[p],
-            "open": sum(1 for e in rel if not e.get("returned")),
-            "open_weight": r2(sum(r2(e.get("weight")) for e in rel if not e.get("returned"))),
-            "loss": r2(sum(r2(e.get("loss")) for e in rel if e.get("returned"))),
+            "open": openr["n"] if openr else 0,
+            "open_weight": r2(openr["weight"]) if openr else 0.0,
+            "loss": r2(closed["loss"]) if closed else 0.0,
         }
     return {
-        "kapan_count": len(kapans),
-        "total_weight": total_weight,
-        "in_process_weight": in_process,
-        "total_loss": total_loss,
-        "open_jangads": len({e.get("jangad_no") for e in entries if not e.get("returned") and e.get("jangad_no")}),
-        "packet_count": len(packets),
-        "stock_packets": sum(1 for p in packets if p.get("status") != "issued"),
+        "kapan_count": k["n"],
+        "total_weight": r2(k["weight"]),
+        "in_process_weight": r2(issued["weight"]) if issued else 0.0,
+        "total_loss": r2(sum(r["loss"] for r in ent_rows if r["_id"]["r"])),
+        "open_jangads": len({j for r in ent_rows if not r["_id"]["r"] for j in r["jangads"] if j}),
+        "packet_count": sum(r["n"] for r in pkt_rows),
+        "stock_packets": sum(r["n"] for r in pkt_rows if r["_id"] != "issued"),
         "karigar_count": await db.karigars.count_documents({"active": True}),
         "by_process": by_process,
     }
+
 
 
 @api.get("/meta/processes")
@@ -1103,6 +1231,15 @@ async def startup():
     await db.entries.create_index("kapan_id")
     await db.entries.create_index("packet_id")
     await db.packets.create_index("kapan_id")
+    await db.packets.create_index("code")
+    await db.packets.create_index("packet_no")
+    await db.packets.create_index("status")
+    await db.packets.create_index("process")
+    await db.packets.create_index([("created_at", -1)])
+    await db.entries.create_index("returned")
+    await db.entries.create_index("jangad_no")
+    await db.entries.create_index([("created_at", -1)])
+    await db.kapans.create_index([("created_at", -1)])
     await db.kapans.create_index("kapan_no", unique=True)
 
     admin_email = os.environ["ADMIN_EMAIL"].lower()

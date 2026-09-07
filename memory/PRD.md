@@ -43,6 +43,19 @@ Files: /app/backend/server.py, models.py, core.py; /app/frontend/src/{pages,comp
   must be registered for that process (e.g. a ghat karigar can only take ghat packets).
 - 2026-06: Packet Receive has a scan bar (GET /api/entries/lookup?code=) — scanning a packet
   opens the Receive popup for its open jangad entry; saving completes the receive.
+## Scale / load hardening (2026-06)
+- `/api/kapans`, `/api/packets`, `/api/entries` are paginated (`page`, `limit`, `q`) and return
+  `{items, total, ...}`. No more silent `to_list()` caps — counts shown in the UI are true totals.
+- Kapan reports come from 2 aggregations for a whole page of kapans (`build_reports`), and
+  `/api/dashboard` is fully aggregation-based.
+- Kapan register total row uses server-computed totals across every matching kapan, not the page.
+- Issue dialog loads only the selected process's stock (first 200; scan reaches any packet).
+- Indexes: packets(kapan_id, code, packet_no, status, process, created_at),
+  entries(kapan_id, packet_id, returned, jangad_no, created_at), kapans(kapan_no unique, created_at).
+- Load-test scripts: `backend/scripts/loadtest_seed.py` / `loadtest_clean.py`.
+  Measured at 1,006 kapans / 25,014 packets / 25,001 entries: kapans 0.64s, packets 0.46s,
+  entries 0.21s, dashboard 0.20s, payloads ~50-70KB (was 1.4-2MB, pages 6-8s).
+
 - Backend test suite: 69/69 passing (/app/backend/tests/backend_test.py)
 
 ## Backlog
