@@ -814,6 +814,29 @@ async def list_entries(
     return out
 
 
+@api.get("/entries/lookup")
+async def lookup_open_entry(code: str = "", user: dict = Depends(get_current_user)):
+    """Find the open (not yet received) entry for a scanned packet code."""
+    code = (code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Scan or type a packet code")
+    packet = await db.packets.find_one({"$or": [{"code": code}, {"packet_no": code}]})
+    if not packet:
+        raise HTTPException(status_code=404, detail=f"No packet with code {code}")
+    entry = await db.entries.find_one({"packet_id": packet["_id"], "returned": False})
+    if not entry:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{packet.get('packet_no')} is not out with a karigar — nothing to receive",
+        )
+    kapan = await db.kapans.find_one({"_id": entry["kapan_id"]}) or {}
+    item = serialize(entry)
+    item["kapan_no"] = kapan.get("kapan_no", "")
+    item["kapan_type"] = kapan.get("type", "")
+    item["code"] = packet.get("code") or ""
+    return item
+
+
 @api.post("/entries")
 async def create_entry(payload: EntryCreate, user: dict = Depends(get_current_user)):
     require(user, "can_create")

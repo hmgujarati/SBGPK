@@ -41,6 +41,8 @@ Files: /app/backend/server.py, models.py, core.py; /app/frontend/src/{pages,comp
   to add packets to a list, remove individually, or expand the process stock list to click-add.
   Backend enforces: every packet must belong to the jangad's process, and a selected karigar
   must be registered for that process (e.g. a ghat karigar can only take ghat packets).
+- 2026-06: Packet Receive has a scan bar (GET /api/entries/lookup?code=) — scanning a packet
+  opens the Receive popup for its open jangad entry; saving completes the receive.
 - Backend test suite: 69/69 passing (/app/backend/tests/backend_test.py)
 
 ## Backlog

@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, Trash, Printer, PencilSimple } from "@phosphor-icons/react";
+import { Plus, Trash, Printer, PencilSimple, Barcode } from "@phosphor-icons/react";
 import { api, apiError, ct } from "@/lib/api";
 import { PROCESS_LABELS } from "@/lib/processConfig";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader, Empty, Stat } from "@/components/Bits";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import IssueDialog from "@/components/IssueDialog";
 import ReceiveDialog from "@/components/ReceiveDialog";
 import EditEntryDialog from "@/components/EditEntryDialog";
@@ -165,6 +167,23 @@ export default function Packets({ mode }) {
   const [issueOpen, setIssueOpen] = useState(false);
   const [receiving, setReceiving] = useState(null);
   const [editing, setEditing] = useState(null);
+  const [scan, setScan] = useState("");
+  const scanRef = useRef(null);
+
+  const scanReceive = async (e) => {
+    e.preventDefault();
+    const code = scan.trim();
+    if (!code) return;
+    try {
+      const { data } = await api.get("/entries/lookup", { params: { code } });
+      setReceiving(data);
+    } catch (err) {
+      toast.error(apiError(err));
+    } finally {
+      setScan("");
+      scanRef.current?.focus();
+    }
+  };
 
   const load = () => {
     api.get("/entries", { params: mode === "receive" ? { status: "open" } : {} })
@@ -206,6 +225,23 @@ export default function Packets({ mode }) {
           </Button>
         )}
       </PageHeader>
+
+      {mode === "receive" && can("can_create") && (
+        <form onSubmit={scanReceive} className="mb-4 flex items-end gap-2 border border-black/10 bg-white p-3">
+          <div className="flex-1">
+            <Label className="text-[11px] uppercase tracking-wider text-zinc-600">
+              Scan packet barcode to receive
+            </Label>
+            <Input ref={scanRef} data-testid="receive-scan-input" value={scan} autoComplete="off"
+              placeholder="00042" onChange={(e) => setScan(e.target.value)}
+              className="mt-1 h-10 rounded-none border-black/15 font-heading text-base tracking-[0.2em] tabular-nums" />
+          </div>
+          <Button type="submit" data-testid="receive-scan-button"
+            className="h-10 rounded-none bg-zinc-900 text-xs font-semibold uppercase tracking-widest">
+            <Barcode size={15} className="mr-1" /> Open Receive
+          </Button>
+        </form>
+      )}
 
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat testid="packets-total" label="Jangads" value={new Set(rows.map((r) => r.jangad_no)).size} />
