@@ -44,12 +44,9 @@ export const PacketLabel = ({ packet, settings }) => {
         ) : (
           <span className="tabular-nums" style={{ fontSize: `${h * 0.11}in` }}>{packet.packet_no}</span>
         )}
-        <div className="text-center leading-none">
-          <div className="tabular-nums" style={{ fontSize: `${h * 0.2}in` }}>{packet.pcs}</div>
-          <div className="border-t-2 border-black tabular-nums" style={{ fontSize: `${h * 0.2}in` }}>
-            {Number(packet.weight || 0).toFixed(2)}
-          </div>
-        </div>
+        <span className="whitespace-nowrap tabular-nums leading-none" style={{ fontSize: `${h * 0.2}in` }}>
+          {packet.pcs} / {Number(packet.weight || 0).toFixed(2)}
+        </span>
       </div>
     </div>
   );
