@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Plus, MagnifyingGlass, Trash } from "@phosphor-icons/react";
-import { api, apiError, ct, today } from "@/lib/api";
+import { api, apiError, ct, dec2, today } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader, Empty } from "@/components/Bits";
 import { Button } from "@/components/ui/button";
@@ -141,16 +141,17 @@ export default function Kapans() {
                 </div>
                 <div>
                   <Label className="text-xs uppercase tracking-wider">Weight (cts)</Label>
-                  <Input data-testid="kapan-weight-input" type="number" step="0.01" value={form.weight}
-                    onChange={(e) =>
+                  <Input data-testid="kapan-weight-input" type="text" inputMode="decimal" value={form.weight}
+                    onChange={(e) => {
+                      const w = dec2(e.target.value);
                       setForm((f) => ({
                         ...f,
-                        weight: e.target.value,
+                        weight: w,
                         kapan_no: f.kapan_no && f.kapan_no !== Number(f.weight || 0).toFixed(2)
                           ? f.kapan_no
-                          : Number(e.target.value || 0).toFixed(2),
-                      }))
-                    }
+                          : Number(w || 0).toFixed(2),
+                      }));
+                    }}
                     className="mt-1 h-10 rounded-none border-black/15 tabular-nums" />
                 </div>
                 <div>

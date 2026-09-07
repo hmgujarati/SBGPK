@@ -25,3 +25,11 @@ export function apiError(e) {
 export const ct = (v) => Number(v || 0).toFixed(2);
 export const pct = (v) => `${Number(v || 0).toFixed(2)}%`;
 export const today = () => new Date().toISOString().slice(0, 10);
+
+// Keeps a weight input to at most 2 decimal places while typing.
+export const dec2 = (v) => {
+  const s = String(v ?? "");
+  if (s === "") return "";
+  const m = s.match(/^\d*(?:\.\d{0,2})?/);
+  return m ? m[0] : "";
+};

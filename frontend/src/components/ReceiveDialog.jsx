@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { api, apiError, ct } from "@/lib/api";
+import { api, apiError, ct, dec2 } from "@/lib/api";
 import { PROCESS_CONFIG, PROCESS_LABELS, computeReturn } from "@/lib/processConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,13 +101,17 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
               onChange={(e) => setV({ ...v, return_pcs: e.target.value })} className={inp} />
           </Field>
           <Field label="Return Weight">
-            <Input data-testid="receive-weight-input" type="number" step="0.01" value={v.return_weight ?? ""}
-              onChange={(e) => setV({ ...v, return_weight: e.target.value })} className={inp} />
+            <Input data-testid="receive-weight-input" type="text" inputMode="decimal" value={v.return_weight ?? ""}
+              onChange={(e) => setV({ ...v, return_weight: dec2(e.target.value) })} className={inp} />
           </Field>
           {cfg.ret.map((f) => (
             <Field key={f.key} label={f.label}>
-              <Input data-testid={`receive-${f.key}-input`} type={f.type} step={f.step}
-                value={v[f.key] ?? ""} onChange={(e) => setV({ ...v, [f.key]: e.target.value })} className={inp} />
+              <Input data-testid={`receive-${f.key}-input`}
+                type={f.step ? "text" : f.type}
+                inputMode={f.step ? "decimal" : undefined}
+                value={v[f.key] ?? ""}
+                onChange={(e) => setV({ ...v, [f.key]: f.step ? dec2(e.target.value) : e.target.value })}
+                className={inp} />
             </Field>
           ))}
         </div>

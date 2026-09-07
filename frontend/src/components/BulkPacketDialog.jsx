@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash } from "@phosphor-icons/react";
-import { api, apiError, ct, today } from "@/lib/api";
+import { api, apiError, ct, dec2, today } from "@/lib/api";
 import { PROCESS_LABELS } from "@/lib/processConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,8 +96,8 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
                         onChange={(e) => setRow(i, { pcs: e.target.value })} className={`${cell} w-24`} />
                     </td>
                     <td className="px-2 py-1.5">
-                      <Input data-testid={`bulk-weight-${i}`} type="number" step="0.01" value={r.weight}
-                        onChange={(e) => setRow(i, { weight: e.target.value })} className={`${cell} w-28`} />
+                      <Input data-testid={`bulk-weight-${i}`} type="text" inputMode="decimal" value={r.weight}
+                        onChange={(e) => setRow(i, { weight: dec2(e.target.value) })} className={`${cell} w-28`} />
                     </td>
                     <td className="px-2 py-1.5 tabular-nums text-zinc-500" data-testid={`bulk-size-${i}`}>{size}</td>
                     <td className="px-2 py-1.5 text-right">
