@@ -143,7 +143,7 @@ export default function PrintSettings() {
       <div className="inline-block bg-zinc-100 p-6">
         <PacketLabel
           settings={s}
-          packet={{ seq: 1, packet_no: "101.35-01", kapan_no: "101.35", pcs: 1, weight: 21.35 }}
+          packet={{ seq: 1, packet_no: "101.35-01", kapan_no: "101.35", pcs: 1, weight: 21.35, process: "sarine" }}
         />
       </div>
     </div>

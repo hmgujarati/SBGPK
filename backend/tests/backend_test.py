@@ -666,7 +666,7 @@ DEFAULT_PRINT_SETTINGS = {
     "sticker_width_in": 2,
     "sticker_height_in": 1,
     "sticker_show_barcode": True,
-    "sticker_barcode_height": 24,
+    "sticker_barcode_height": 40,
 }
 
 
