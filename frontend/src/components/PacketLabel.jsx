@@ -18,7 +18,7 @@ export const PacketLabel = ({ packet, settings }) => {
   useEffect(() => {
     if (!showBarcode || !ref.current) return;
     try {
-      JsBarcode(ref.current, packet.packet_no, {
+      JsBarcode(ref.current, packet.code || packet.packet_no, {
         format: "CODE128",
         displayValue: false,
         margin: 0,
@@ -28,7 +28,7 @@ export const PacketLabel = ({ packet, settings }) => {
     } catch {
       /* invalid barcode value — leave blank */
     }
-  }, [packet.packet_no, showBarcode, settings?.sticker_barcode_height]);
+  }, [packet.packet_no, packet.code, showBarcode, settings?.sticker_barcode_height]);
 
   return (
     <div
@@ -50,9 +50,14 @@ export const PacketLabel = ({ packet, settings }) => {
 
       <div className="flex items-end justify-between gap-2">
         {showBarcode ? (
-          <svg ref={ref} className="max-w-[55%]" />
+          <span className="flex max-w-[55%] flex-col items-center">
+            <svg ref={ref} className="w-full" />
+            <span className="font-bold tabular-nums tracking-[0.18em]" style={{ fontSize: `${h * 0.12}in` }}>
+              {packet.code || packet.packet_no}
+            </span>
+          </span>
         ) : (
-          <span className="tabular-nums" style={{ fontSize: `${h * 0.11}in` }}>{packet.packet_no}</span>
+          <span className="tabular-nums" style={{ fontSize: `${h * 0.11}in` }}>{packet.code || packet.packet_no}</span>
         )}
         <span className="whitespace-nowrap text-center leading-none">
           <span className="block tabular-nums" style={{ fontSize: `${h * 0.2}in` }}>{packet.pcs}</span>

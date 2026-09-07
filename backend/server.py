@@ -46,6 +46,14 @@ logger = logging.getLogger(__name__)
 LOSS_PROCESSES = {"laser", "shape", "ghat", "polish", "table_polish", "nats", "filling"}
 
 
+async def next_packet_code() -> str:
+    """Global, never-reused 5-digit packet identifier (00001, 00002, ...)."""
+    doc = await db.counters.find_one_and_update(
+        {"_id": "packet_code"}, {"$inc": {"seq": 1}}, upsert=True, return_document=True
+    )
+    return f"{doc['seq']:05d}"
+
+
 def oid(value: str) -> ObjectId:
     try:
         return ObjectId(value)
@@ -481,10 +489,11 @@ async def create_packet(kapan_id: str, payload: PacketCreate, user: dict = Depen
             status_code=400,
             detail=f"Only {remaining:.2f} cts remaining un-packeted in this kapan",
         )
-    seq = len(existing) + 1
+    seq = max([int(p.get("seq") or 0) for p in existing], default=0) + 1
     doc = {
         "kapan_id": _kid,
         "seq": seq,
+        "code": await next_packet_code(),
         "packet_no": payload.packet_no or f"{kapan['kapan_no']}-{seq:02d}",
         "date": payload.date,
         "pcs": int(payload.pcs or 0),
@@ -527,7 +536,7 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
             detail=f"Total {total:.2f} cts exceeds the {remaining:.2f} cts remaining un-packeted in this kapan",
         )
 
-    seq = len(existing)
+    seq = max([int(p.get("seq") or 0) for p in existing], default=0)
     created = []
     for row in rows:
         seq += 1
@@ -535,6 +544,7 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
         packet = {
             "kapan_id": _kid,
             "seq": seq,
+            "code": await next_packet_code(),
             "packet_no": f"{kapan['kapan_no']}-{seq:02d}",
             "process": payload.process,
             "date": payload.date,
@@ -699,6 +709,7 @@ async def packet_labels(ids: str = "", user: dict = Depends(get_current_user)):
         {
             "id": str(p["_id"]),
             "seq": serials.get(p["_id"], p.get("seq")),
+            "code": p.get("code") or "",
             "packet_no": p.get("packet_no"),
             "kapan_no": (kapans.get(p["kapan_id"]) or {}).get("kapan_no", ""),
             "pcs": int(p.get("pcs") or 0),
