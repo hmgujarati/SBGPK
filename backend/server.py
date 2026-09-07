@@ -688,10 +688,17 @@ async def packet_labels(ids: str = "", user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="No packets selected")
     packets = await db.packets.find({"_id": {"$in": id_list}}).sort("seq", 1).to_list(500)
     kapans = {k["_id"]: k for k in await db.kapans.find().to_list(2000)}
+    # Label serial matches the process register's # column: position of the packet
+    # among that kapan's packets in the same process, ordered by creation sequence.
+    serials = {}
+    for kid, proc in {(p["kapan_id"], p.get("process")) for p in packets}:
+        siblings = await db.packets.find({"kapan_id": kid, "process": proc}).sort("seq", 1).to_list(2000)
+        for i, s in enumerate(siblings, start=1):
+            serials[s["_id"]] = i
     return [
         {
             "id": str(p["_id"]),
-            "seq": p.get("seq"),
+            "seq": serials.get(p["_id"], p.get("seq")),
             "packet_no": p.get("packet_no"),
             "kapan_no": (kapans.get(p["kapan_id"]) or {}).get("kapan_no", ""),
             "pcs": int(p.get("pcs") or 0),
