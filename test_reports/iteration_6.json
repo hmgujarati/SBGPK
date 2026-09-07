@@ -1,0 +1,25 @@
+{
+  "summary": "Frontend UI verification for the packet sticker label auto-fit fix (iteration 7 from main agent, iteration_6 report). Verified /labels for kapan 9999.99 packets seq 1/500/999 and the Print Settings Typical + Worst-case previews. All acceptance criteria pass: 3 top-line spans share equal font size, typical label renders at a larger font (16.32px) than the worst case (10.77px @ 2x1), auto-fit shrinks further on a 1.5in sticker (8.08px) and grows on a 3in sticker (16.16px). Barcode SVG (CODE128) present bottom-left with 38-41 rects; pcs-over-weight fraction with horizontal rule and 2-decimal weight renders correctly. Sticker's scrollWidth == clientWidth (no sticker-level horizontal overflow) and scrollHeight == clientHeight (no vertical overflow) for all cases, satisfying the exact assertion 'topRow.scrollWidth <= sticker.clientWidth' (max seen 181 <= 190). Copies regression: copies=3 with 3 packet ids renders 9 stickers and button reads 'Print 9 Labels'. Mobile 390px: no horizontal page overflow on /labels or /print-settings. Cleanup: kapan 9999.99 (id 6a9e7fb3b6d0870bc1c6838b) deleted via DELETE /api/kapans/... which returned {ok:true}; print settings restored to A4/portrait/10mm/2x1/barcode-on/height 40 via the Save button.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "PacketLabel top row (worst case)", "issues": ["Minor: the top-row flex container's own scrollWidth exceeds its clientWidth by ~10px on the 2in sticker for worst-case '999 SHAPE CUTTING 9999.99' (topSW=181 vs topCW=171). The extra text spills into the sticker's 5% horizontal padding but stays within the sticker's clientWidth (190px), so overflow-hidden does not clip visible characters and the acceptance test topRow.scrollWidth <= sticker.clientWidth passes. If a stricter margin is desired, tighten the 0.62 char-width factor in PacketLabel.jsx to ~0.66 or reduce usableIn to w*0.75."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PacketLabel.jsx auto-fit uses a heuristic char width factor 0.62 that is slightly optimistic for uppercase bold sans-serif; worst-case text spills into padding by ~5px per side. Consider bumping the factor to 0.66-0.70 or using w*0.75 usableIn for a small safety margin.",
+    "PrintSettings 'Save Settings' button always sends sticker_barcode_height Number(x || 24) but the default per problem statement is 40. Verify default on backend to avoid drift when field is blanked."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100%"},
+  "test_credentials": "admin@polki.com / admin123",
+  "seed_data_creation": "None. Deleted seeded kapan 9999.99 (id 6a9e7fb3b6d0870bc1c6838b) at end of run as instructed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Kapan 9999.99 with its 999 shape-cutting packets was deleted at end of run. Real user kapan 101.35 is preserved. TEST_ prefixed kapans from prior iterations remain (TEST660287, TEST204577, TEST566128, TEST466018, TEST129140, TEST764384, TEST771498, TEST876696, TEST308987) — not created by this run. Print settings were restored via UI to 2x1/margin 10mm/barcode height 40 with barcode on. Backend suite not re-run (frontend-only request, no backend code touched).",
+  "rca of the issue": "Not a bug in this iteration — verifying the previously applied fix. The min(h*0.17, usableIn/(0.62*chars)) with 0.07in floor correctly auto-fits the top line so no character is truncated and all three spans share the same font size. Typical vs worst-case font sizes differ as expected (typical unbounded by width, worst-case bounded by width term)."
+}

@@ -36,7 +36,7 @@ export default function PrintSettings() {
         jangad_margin_mm: Number(s.jangad_margin_mm || 0),
         sticker_width_in: Number(s.sticker_width_in || 2),
         sticker_height_in: Number(s.sticker_height_in || 1),
-        sticker_barcode_height: Number(s.sticker_barcode_height || 24),
+        sticker_barcode_height: Number(s.sticker_barcode_height || 40),
       });
       setS(data);
       toast.success("Print settings saved");
@@ -140,11 +140,25 @@ export default function PrintSettings() {
       <h2 className="mb-3 mt-8 font-heading text-sm font-bold uppercase tracking-[0.14em] text-zinc-500">
         Sticker preview
       </h2>
-      <div className="inline-block bg-zinc-100 p-6">
-        <PacketLabel
-          settings={s}
-          packet={{ seq: 1, packet_no: "101.35-01", kapan_no: "101.35", pcs: 1, weight: 21.35, process: "sarine" }}
-        />
+      <div className="flex flex-wrap gap-6">
+        <div>
+          <div className="mb-2 text-[11px] uppercase tracking-wider text-zinc-500">Typical</div>
+          <div className="inline-block bg-zinc-100 p-6">
+            <PacketLabel
+              settings={s}
+              packet={{ seq: 1, packet_no: "101.35-01", kapan_no: "101.35", pcs: 1, weight: 21.35, process: "sarine" }}
+            />
+          </div>
+        </div>
+        <div>
+          <div className="mb-2 text-[11px] uppercase tracking-wider text-zinc-500">Worst case</div>
+          <div className="inline-block bg-zinc-100 p-6" data-testid="sticker-preview-worst">
+            <PacketLabel
+              settings={s}
+              packet={{ seq: 999, packet_no: "9999.99-999", kapan_no: "9999.99", pcs: 999, weight: 9999.99, process: "shape" }}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
