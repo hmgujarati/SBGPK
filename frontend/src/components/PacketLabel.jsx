@@ -30,14 +30,14 @@ export const PacketLabel = ({ packet, settings }) => {
       className="label-sticker relative flex flex-col justify-between overflow-hidden border border-black/20 bg-white"
       style={{ width: `${w}in`, height: `${h}in`, padding: `${h * 0.06}in ${w * 0.05}in` }}
     >
-      <div className="flex items-baseline justify-between gap-1 leading-none">
-        <span className="whitespace-nowrap font-bold tabular-nums" style={{ fontSize: `${h * 0.22}in` }}>
+      <div className="flex items-baseline justify-between leading-none" style={{ gap: `${w * 0.06}in` }}>
+        <span className="whitespace-nowrap font-bold tabular-nums" style={{ fontSize: `${h * 0.17}in` }}>
           {packet.seq}
         </span>
-        <span className="whitespace-nowrap font-bold uppercase" style={{ fontSize: `${h * 0.22}in` }}>
+        <span className="whitespace-nowrap font-bold uppercase tracking-wide" style={{ fontSize: `${h * 0.17}in` }}>
           {PROCESS_LABELS[packet.process] || packet.process || ""}
         </span>
-        <span className="whitespace-nowrap font-bold tabular-nums" style={{ fontSize: `${h * 0.22}in` }}>
+        <span className="whitespace-nowrap font-bold tabular-nums" style={{ fontSize: `${h * 0.17}in` }}>
           {packet.kapan_no}
         </span>
       </div>
