@@ -23,7 +23,7 @@ export const PacketLabel = ({ packet, settings }) => {
         displayValue: false,
         margin: 0,
         height: Number(settings?.sticker_barcode_height || 40),
-        width: 1,
+        width: 2,
       });
     } catch {
       /* invalid barcode value — leave blank */
@@ -50,7 +50,7 @@ export const PacketLabel = ({ packet, settings }) => {
 
       <div className="flex items-end justify-between gap-2">
         {showBarcode ? (
-          <span className="flex max-w-[55%] flex-col items-center">
+          <span className="flex max-w-[68%] flex-col items-center">
             <svg ref={ref} className="w-full" />
             <span className="font-bold tabular-nums tracking-[0.18em]" style={{ fontSize: `${h * 0.12}in` }}>
               {packet.code || packet.packet_no}
