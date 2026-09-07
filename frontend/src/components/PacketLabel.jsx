@@ -1,14 +1,12 @@
 import { useEffect, useRef } from "react";
 import JsBarcode from "jsbarcode";
-import { PROCESS_LABELS } from "@/lib/processConfig";
 
-/** One packet sticker, sized in inches from print settings. All text one size. */
+/** One packet sticker, sized in inches from print settings. */
 export const PacketLabel = ({ packet, settings }) => {
   const ref = useRef(null);
   const w = Number(settings?.sticker_width_in || 2);
   const h = Number(settings?.sticker_height_in || 1);
   const showBarcode = settings?.sticker_show_barcode !== false;
-  const fs = `${h * 0.15}in`;
 
   useEffect(() => {
     if (!showBarcode || !ref.current) return;
@@ -18,7 +16,7 @@ export const PacketLabel = ({ packet, settings }) => {
         displayValue: false,
         margin: 0,
         height: Number(settings?.sticker_barcode_height || 40),
-        width: 1.4,
+        width: 1,
       });
     } catch {
       /* invalid barcode value — leave blank */
@@ -28,28 +26,31 @@ export const PacketLabel = ({ packet, settings }) => {
   return (
     <div
       data-testid={`packet-label-${packet.packet_no}`}
-      className="label-sticker flex flex-col justify-between overflow-hidden border border-black/20 bg-white leading-tight"
-      style={{ width: `${w}in`, height: `${h}in`, padding: `${h * 0.05}in ${w * 0.04}in`, fontSize: fs }}
+      className="label-sticker relative flex flex-col justify-between overflow-hidden border border-black/20 bg-white"
+      style={{ width: `${w}in`, height: `${h}in`, padding: `${h * 0.06}in ${w * 0.05}in` }}
     >
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="font-semibold tabular-nums">{packet.seq}</span>
-        <span className="font-semibold tabular-nums">{packet.kapan_no}</span>
-      </div>
-
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate uppercase tracking-wide">
-          {PROCESS_LABELS[packet.process] || packet.process || ""}
+      <div className="flex items-start justify-between leading-none">
+        <span className="font-bold tabular-nums" style={{ fontSize: `${h * 0.3}in` }}>
+          {packet.seq}
         </span>
-        <span className="whitespace-nowrap tabular-nums">
-          {packet.pcs} / {Number(packet.weight || 0).toFixed(2)}
+        <span className="font-bold tabular-nums" style={{ fontSize: `${h * 0.3}in` }}>
+          {packet.kapan_no}
         </span>
       </div>
 
-      {showBarcode ? (
-        <svg ref={ref} className="h-auto w-full" preserveAspectRatio="none" />
-      ) : (
-        <span className="tabular-nums">{packet.packet_no}</span>
-      )}
+      <div className="flex items-end justify-between gap-2">
+        {showBarcode ? (
+          <svg ref={ref} className="max-w-[55%]" />
+        ) : (
+          <span className="tabular-nums" style={{ fontSize: `${h * 0.11}in` }}>{packet.packet_no}</span>
+        )}
+        <div className="text-center leading-none">
+          <div className="tabular-nums" style={{ fontSize: `${h * 0.2}in` }}>{packet.pcs}</div>
+          <div className="border-t-2 border-black tabular-nums" style={{ fontSize: `${h * 0.2}in` }}>
+            {Number(packet.weight || 0).toFixed(2)}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
