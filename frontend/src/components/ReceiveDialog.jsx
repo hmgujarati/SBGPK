@@ -49,7 +49,7 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
   const warning =
     process === "filling"
       ? `Filling adds weight — return weight cannot be less than ${issued.toFixed(2)} cts`
-      : `Return + Boil + RC (${accounted.toFixed(2)}) cannot exceed issued ${issued.toFixed(2)} cts`;
+      : `Return Weight + Return Boil + RC (${accounted.toFixed(2)}) cannot exceed issued ${issued.toFixed(2)} cts`;
 
   const submit = async () => {
     setBusy(true);

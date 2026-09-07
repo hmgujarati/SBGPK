@@ -192,7 +192,7 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
               ? "Issue weight must be greater than 0"
               : process === "filling"
                 ? `Filling adds weight — return weight cannot be less than ${issued.toFixed(2)} cts`
-                : `Return + Boil + RC (${accounted.toFixed(2)}) cannot exceed issued ${issued.toFixed(2)} cts`}
+                : `Return Weight + Return Boil + RC (${accounted.toFixed(2)}) cannot exceed issued ${issued.toFixed(2)} cts`}
           </p>
         )}
 

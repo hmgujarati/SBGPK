@@ -41,7 +41,7 @@ export const EntryTable = ({ rows, onReceive, onDelete, onEdit, onDeletePacket, 
             <TH>Ret Date</TH>
             <TH right>Ret Pcs</TH>
             <TH right>Ret Wt</TH>
-            <TH right>Boil</TH>
+            <TH right>Return Boil</TH>
             <TH right>RC</TH>
             <TH right>Nail RC</TH>
             <TH right>Loss</TH>
