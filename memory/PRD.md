@@ -56,6 +56,12 @@ Live kapan report: Kapan Weight = RC | Nail RC | Laser Loss | Polish Loss | Shap
 - Jangad print page is per jangad number (`/jangad/{jangadNo}`, `GET /api/jangads/{no}`): all packets as numbered lines with a bold total row and a single signature block on one paper
 - Dashboard "Open Jangads" counts unique jangad numbers
 
+## Iteration 6 — packet labels + print settings (2026-06)
+- **Packet sticker labels**: `/labels?ids=...` renders big, easy-to-read stickers — serial top-left, kapan no top-right, pcs-over-weight as a fraction bottom-right, and a CODE128 barcode of the packet no. "Print all labels" on each process stock table plus a printer icon per packet row; a "copies each" control repeats every label
+- **Print Settings** admin tab (`can_manage_staff`, `GET/PUT /api/settings/print`): jangad paper size / orientation / margin, and sticker width × height in inches (default 2in × 1in, with presets), barcode height and a barcode on/off switch, plus a live sticker preview
+- `@page` size is driven by the saved settings on both the jangad slip and the label sheet, so each sticker prints one per page at the exact physical size
+- `GET /api/packets/labels?ids=` returns the label payload (seq, packet_no, kapan_no, pcs, weight)
+
 ## Backlog
 - P1: barcode on each packet — scan to issue (print jangad) and scan to receive (opens the return popup)
 - P1: validate issued weight against kapan remaining weight; prevent duplicate open issue per stage

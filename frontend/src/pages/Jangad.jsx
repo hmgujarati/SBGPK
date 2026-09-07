@@ -14,15 +14,20 @@ export default function Jangad() {
   const { jangadNo } = useParams();
   const navigate = useNavigate();
   const [j, setJ] = useState(null);
+  const [settings, setSettings] = useState(null);
 
   useEffect(() => {
     api.get(`/jangads/${jangadNo}`).then((r) => setJ(r.data)).catch(() => {});
+    api.get("/settings/print").then((r) => setSettings(r.data)).catch(() => {});
   }, [jangadNo]);
 
   if (!j) return <div className="p-6 text-sm text-zinc-500">Loading…</div>;
 
   return (
     <div data-testid="jangad-page">
+      {settings && (
+        <style>{`@media print { @page { size: ${settings.jangad_paper} ${settings.jangad_orientation}; margin: ${settings.jangad_margin_mm}mm; } }`}</style>
+      )}
       <div className="no-print mb-4 flex items-center justify-between">
         <button data-testid="jangad-back" onClick={() => navigate(-1)}
           className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-zinc-500 transition-colors hover:text-zinc-900">

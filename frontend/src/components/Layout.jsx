@@ -7,6 +7,7 @@ import {
   ArrowsLeftRight,
   Users,
   UserGear,
+  Printer,
   SignOut,
   List,
   X,
@@ -21,6 +22,7 @@ const NAV = [
   { to: "/receive", label: "Packet Receive", icon: Package, testid: "nav-receive" },
   { to: "/karigars", label: "Karigar", icon: Users, testid: "nav-karigars" },
   { to: "/staff", label: "Staff & Admin", icon: UserGear, testid: "nav-staff", perm: "can_manage_staff" },
+  { to: "/print-settings", label: "Print Settings", icon: Printer, testid: "nav-print-settings", perm: "can_manage_staff" },
 ];
 
 export const Layout = () => {

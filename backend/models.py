@@ -83,6 +83,16 @@ class PacketCreate(BaseModel):
     notes: Optional[str] = ""
 
 
+class PrintSettings(BaseModel):
+    jangad_paper: str = "A4"
+    jangad_orientation: str = "portrait"
+    jangad_margin_mm: float = 10
+    sticker_width_in: float = 2
+    sticker_height_in: float = 1
+    sticker_show_barcode: bool = True
+    sticker_barcode_height: float = 24
+
+
 class PacketRow(BaseModel):
     pcs: int = 0
     weight: float = 0.0

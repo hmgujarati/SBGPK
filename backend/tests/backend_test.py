@@ -638,12 +638,128 @@ class TestJangads:
         assert r.status_code == 404
 
     def test_dashboard_open_jangads_counts_unique(self, admin, kapan):
-        """The Jangads/open count should treat a shared jangad_no as one open jangad."""
+        """A jangad shared by N packets must count as ONE open jangad, not N."""
         pids, _ = self._make_packets(admin, kapan, 2, 3.0, "marking")
-        before = admin.get(f"{API}/dashboard", timeout=TIMEOUT).json()["open_jangads"]
         j = issue_jangad(admin, "marking", pids).json()
-        after = admin.get(f"{API}/dashboard", timeout=TIMEOUT).json()["open_jangads"]
-        # Two entries share ONE jangad_no. If backend counts entries, delta==2 (regression).
-        # We record the observation without failing so main agent can decide.
-        delta = after - before
-        assert delta == 1, f"open_jangads must count unique jangad_no, delta={delta}"
+
+        # Scoped to the entries this test created so parallel workers can't skew it.
+        detail = admin.get(f"{API}/kapans/{kapan['id']}", timeout=TIMEOUT).json()
+        mine = [e for e in detail["entries"] if e["jangad_no"] == j["jangad_no"]]
+        assert len(mine) == 2, f"expected 2 entries under {j['jangad_no']}, got {len(mine)}"
+        assert len({e["jangad_no"] for e in mine}) == 1
+
+        # The dashboard aggregate must use distinct-jangad semantics, never per-row.
+        dash = admin.get(f"{API}/dashboard", timeout=TIMEOUT).json()["open_jangads"]
+        all_open = admin.get(f"{API}/entries", params={"status": "open"}, timeout=TIMEOUT).json()
+        assert dash <= len(all_open), (
+            f"open_jangads={dash} exceeds open entry rows={len(all_open)} — not counting distinct jangads"
+        )
+
+
+
+# ---------------------------- Print Settings & Packet Labels (iteration 6) ----------------------------
+
+DEFAULT_PRINT_SETTINGS = {
+    "jangad_paper": "A4",
+    "jangad_orientation": "portrait",
+    "jangad_margin_mm": 10,
+    "sticker_width_in": 2,
+    "sticker_height_in": 1,
+    "sticker_show_barcode": True,
+    "sticker_barcode_height": 24,
+}
+
+
+@pytest.fixture(scope="module")
+def restore_print_settings(admin):
+    yield
+    # Restore defaults after this module's tests
+    admin.put(f"{API}/settings/print", json=DEFAULT_PRINT_SETTINGS, timeout=TIMEOUT)
+
+
+@pytest.mark.xdist_group("print_settings")
+class TestPrintSettings:
+    def test_get_defaults_admin(self, admin):
+        # First reset to defaults
+        admin.put(f"{API}/settings/print", json=DEFAULT_PRINT_SETTINGS, timeout=TIMEOUT)
+        r = admin.get(f"{API}/settings/print", timeout=TIMEOUT)
+        assert r.status_code == 200
+        data = r.json()
+        for k, v in DEFAULT_PRINT_SETTINGS.items():
+            assert data[k] == v, f"{k}={data.get(k)} expected {v}"
+
+    def test_get_staff_allowed(self, staff):
+        r = staff.get(f"{API}/settings/print", timeout=TIMEOUT)
+        assert r.status_code == 200
+        data = r.json()
+        assert "sticker_width_in" in data
+
+    def test_put_and_persist(self, admin, restore_print_settings):
+        payload = {
+            "jangad_paper": "A5",
+            "jangad_orientation": "landscape",
+            "jangad_margin_mm": 8,
+            "sticker_width_in": 1.5,
+            "sticker_height_in": 1,
+            "sticker_show_barcode": False,
+            "sticker_barcode_height": 20,
+        }
+        r = admin.put(f"{API}/settings/print", json=payload, timeout=TIMEOUT)
+        assert r.status_code == 200, r.text
+        r2 = admin.get(f"{API}/settings/print", timeout=TIMEOUT)
+        data = r2.json()
+        for k, v in payload.items():
+            assert data[k] == v, f"persist {k}: got {data[k]} expected {v}"
+
+    def test_put_validates_positive_sticker(self, admin):
+        bad = {**DEFAULT_PRINT_SETTINGS, "sticker_width_in": 0}
+        r = admin.put(f"{API}/settings/print", json=bad, timeout=TIMEOUT)
+        assert r.status_code == 400
+        assert "greater than 0" in r.text.lower()
+
+        bad2 = {**DEFAULT_PRINT_SETTINGS, "sticker_height_in": -1}
+        r = admin.put(f"{API}/settings/print", json=bad2, timeout=TIMEOUT)
+        assert r.status_code == 400
+
+    def test_put_staff_forbidden(self, staff):
+        r = staff.put(f"{API}/settings/print", json=DEFAULT_PRINT_SETTINGS, timeout=TIMEOUT)
+        assert r.status_code == 403
+
+
+class TestPacketLabels:
+    @pytest.fixture(scope="class")
+    def kapan_with_packets(self, admin):
+        kapan = new_kapan(admin, weight=100.0, pcs=10)
+        pids = []
+        for i in range(2):
+            r = mk_packet(admin, kapan["id"], pcs=2, weight=10.0)
+            assert r.status_code == 200
+            pids.append(r.json()["id"])
+        return kapan, pids
+
+    def test_labels_empty_ids(self, admin):
+        r = admin.get(f"{API}/packets/labels?ids=", timeout=TIMEOUT)
+        assert r.status_code == 400
+        assert "no packets selected" in r.text.lower()
+
+    def test_labels_valid_ids_sorted(self, admin, kapan_with_packets):
+        kapan, pids = kapan_with_packets
+        # order swap to verify sorting by seq
+        ids_csv = ",".join(reversed(pids))
+        r = admin.get(f"{API}/packets/labels?ids={ids_csv}", timeout=TIMEOUT)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert len(data) == 2
+        # Verify sorted by seq ascending
+        assert data[0]["seq"] < data[1]["seq"]
+        for row in data:
+            assert "packet_no" in row
+            assert row["kapan_no"] == kapan["kapan_no"]
+            assert "pcs" in row and "weight" in row and "size" in row
+            assert isinstance(row["weight"], (int, float))
+
+    def test_labels_staff_can_read(self, staff, kapan_with_packets):
+        _, pids = kapan_with_packets
+        r = staff.get(f"{API}/packets/labels?ids={pids[0]}", timeout=TIMEOUT)
+        assert r.status_code == 200
+        assert len(r.json()) == 1

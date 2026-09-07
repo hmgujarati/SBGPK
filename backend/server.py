@@ -33,6 +33,7 @@ from models import (
     BulkProcessPackets,
     JangadCreate,
     PacketCreate,
+    PrintSettings,
     Permissions,
     UserCreate,
     UserUpdate,
@@ -619,6 +620,49 @@ async def get_jangad_by_no(jangad_no: str, user: dict = Depends(get_current_user
             for e in entries
         ],
     }
+
+
+# ---------------------------------------------------------------- print settings
+@api.get("/settings/print")
+async def get_print_settings(user: dict = Depends(get_current_user)):
+    doc = await db.settings.find_one({"_id": "print"})
+    defaults = PrintSettings().model_dump()
+    if doc:
+        doc.pop("_id", None)
+        defaults.update({k: v for k, v in doc.items() if k in defaults})
+    return defaults
+
+
+@api.put("/settings/print")
+async def update_print_settings(payload: PrintSettings, user: dict = Depends(get_current_user)):
+    require(user, "can_manage_staff")
+    data = payload.model_dump()
+    if data["sticker_width_in"] <= 0 or data["sticker_height_in"] <= 0:
+        raise HTTPException(status_code=400, detail="Sticker size must be greater than 0")
+    await db.settings.update_one({"_id": "print"}, {"$set": data}, upsert=True)
+    return data
+
+
+@api.get("/packets/labels")
+async def packet_labels(ids: str = "", user: dict = Depends(get_current_user)):
+    id_list = [oid(i) for i in ids.split(",") if i.strip()]
+    if not id_list:
+        raise HTTPException(status_code=400, detail="No packets selected")
+    packets = await db.packets.find({"_id": {"$in": id_list}}).sort("seq", 1).to_list(500)
+    kapans = {k["_id"]: k for k in await db.kapans.find().to_list(2000)}
+    return [
+        {
+            "id": str(p["_id"]),
+            "seq": p.get("seq"),
+            "packet_no": p.get("packet_no"),
+            "kapan_no": (kapans.get(p["kapan_id"]) or {}).get("kapan_no", ""),
+            "pcs": int(p.get("pcs") or 0),
+            "weight": r2(p.get("weight")),
+            "size": r2(p.get("size")),
+            "process": p.get("process"),
+        }
+        for p in packets
+    ]
 
 
 @api.delete("/packets/{packet_id}")

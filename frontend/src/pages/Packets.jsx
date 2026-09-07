@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, Trash } from "@phosphor-icons/react";
+import { Plus, Trash, Printer } from "@phosphor-icons/react";
 import { api, apiError, ct } from "@/lib/api";
 import { PROCESS_LABELS } from "@/lib/processConfig";
 import { useAuth } from "@/context/AuthContext";
@@ -109,13 +109,20 @@ export const EntryTable = ({ rows, onReceive, onDelete, showKapan = true, showSr
 export const PacketStockTable = ({ rows }) => {
   if (!rows.length) return null;
   const total = rows.reduce((a, p) => a + Number(p.weight || 0), 0);
+  const allIds = rows.map((p) => p.id).join(",");
   return (
     <div className="mb-4 overflow-x-auto border border-[#B4975A]/40 bg-[#B4975A]/5" data-testid="packet-stock-table">
-      <table className="w-full min-w-[560px] border-collapse text-xs">
+      <table className="w-full min-w-[620px] border-collapse text-xs">
         <thead>
           <tr className="border-b border-[#B4975A]/40 text-zinc-600">
             <th className="px-2.5 py-2 text-left font-semibold uppercase tracking-wider" colSpan={6}>
               In stock — not yet issued ({rows.length} packets · {ct(total)} cts) · issue them from Packet Issue
+            </th>
+            <th className="px-2.5 py-2 text-right">
+              <Link to={`/labels?ids=${allIds}`} data-testid="print-all-labels-button"
+                className="inline-flex items-center gap-1 border border-zinc-900 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors hover:bg-zinc-900 hover:text-white">
+                <Printer size={12} /> Print all labels
+              </Link>
             </th>
           </tr>
           <tr className="border-b border-[#B4975A]/30 text-zinc-500">
@@ -125,6 +132,7 @@ export const PacketStockTable = ({ rows }) => {
             <th className="px-2.5 py-1.5 text-right font-semibold uppercase tracking-wider">Pcs</th>
             <th className="px-2.5 py-1.5 text-right font-semibold uppercase tracking-wider">Weight</th>
             <th className="px-2.5 py-1.5 text-right font-semibold uppercase tracking-wider">Size</th>
+            <th className="px-2.5 py-1.5" />
           </tr>
         </thead>
         <tbody>
@@ -136,6 +144,12 @@ export const PacketStockTable = ({ rows }) => {
               <td className="px-2.5 py-1.5 text-right tabular-nums">{p.pcs}</td>
               <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums">{ct(p.weight)}</td>
               <td className="px-2.5 py-1.5 text-right tabular-nums text-zinc-500">{ct(p.size)}</td>
+              <td className="px-2.5 py-1.5 text-right">
+                <Link to={`/labels?ids=${p.id}`} data-testid={`print-label-${p.packet_no}`}
+                  className="text-zinc-500 transition-colors hover:text-zinc-900" title="Print label">
+                  <Printer size={14} />
+                </Link>
+              </td>
             </tr>
           ))}
         </tbody>

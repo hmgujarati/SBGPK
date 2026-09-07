@@ -10,6 +10,8 @@ import KapanDetail from "@/pages/KapanDetail";
 import Packets from "@/pages/Packets";
 import Karigars from "@/pages/Karigars";
 import Staff from "@/pages/Staff";
+import PrintSettings from "@/pages/PrintSettings";
+import Labels from "@/pages/Labels";
 import Jangad from "@/pages/Jangad";
 
 const Protected = ({ children }) => {
@@ -47,6 +49,8 @@ function App() {
             <Route path="/receive" element={<Packets mode="receive" />} />
             <Route path="/karigars" element={<Karigars />} />
             <Route path="/staff" element={<Staff />} />
+            <Route path="/print-settings" element={<PrintSettings />} />
+            <Route path="/labels" element={<Labels />} />
             <Route path="/jangad/:jangadNo" element={<Jangad />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
