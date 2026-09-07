@@ -917,3 +917,104 @@ class TestEntryEdit:
         assert (d.get("hw") or "") == ""
         assert int(d.get("expected_return_pcs") or 0) == 0
         assert (d.get("ds") or "") == ""
+
+
+# ---------------------------------------------------------------- iter 9: packet delete frees weight
+class TestPacketDelete:
+    """DELETE /api/packets/{id}: hard delete + free weight back to unpacketed."""
+
+    @pytest.fixture
+    def kapan(self, admin):
+        k = new_kapan(admin, 100.0, 5)
+        yield k
+        admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+    def test_delete_frees_weight_and_hard_removes(self, admin, kapan):
+        # 3 packets of 10 cts
+        ids = []
+        for _ in range(3):
+            r = mk_packet(admin, kapan["id"], 2, 10.0)
+            assert r.status_code == 200, r.text
+            ids.append(r.json()["id"])
+        rep = report(admin, kapan["id"])["report"]
+        assert rep["unpacketed_weight"] == 70.0
+        assert rep["balanced"] is True and rep["difference"] == 0.0
+
+        # delete one packet
+        d = admin.delete(f"{API}/packets/{ids[0]}", timeout=TIMEOUT)
+        assert d.status_code == 200, d.text
+
+        det = report(admin, kapan["id"])
+        # hard removed from kapan.packets
+        remaining_ids = [p["id"] for p in det["packets"]]
+        assert ids[0] not in remaining_ids
+        assert len(det["packets"]) == 2
+        # weight freed
+        assert det["report"]["unpacketed_weight"] == 80.0
+        assert det["report"]["balanced"] is True
+        assert det["report"]["difference"] == 0.0
+        # not listed as in_stock packet anywhere
+        stock = admin.get(f"{API}/packets", params={"status": "in_stock"}, timeout=TIMEOUT).json()
+        assert not any(p["id"] == ids[0] for p in stock)
+
+    def test_delete_issued_returned_via_jangad_delete_frees_weight(self, admin, kapan):
+        """User's exact scenario: create 2, issue under jangad, delete jangad entries (packets go
+        back to in_stock but weight still allocated), then delete packet -> weight returns."""
+        r1 = mk_packet(admin, kapan["id"], 2, 10.0)
+        r2 = mk_packet(admin, kapan["id"], 2, 10.0)
+        p1, p2 = r1.json(), r2.json()
+        # issue under one jangad
+        jr = admin.post(f"{API}/jangads", json={
+            "process": "sarine", "date": "2026-07-08",
+            "packet_ids": [p1["id"], p2["id"]], "karigar_name": "TEST_UDEL"}, timeout=TIMEOUT)
+        assert jr.status_code == 200, jr.text
+        entries = jr.json()["entries"]
+        # delete both entries (out-of-order rule: only the newest can be deleted first,
+        # but these are peers of the same packet-lineage so should each delete newest-of-packet)
+        for e in entries:
+            dr = admin.delete(f"{API}/entries/{e['id']}", timeout=TIMEOUT)
+            assert dr.status_code == 200, dr.text
+        # packets returned to in_stock (weight still allocated -> unpacketed 80)
+        det = report(admin, kapan["id"])
+        pk_ids = {p["id"] for p in det["packets"]}
+        assert p1["id"] in pk_ids and p2["id"] in pk_ids
+        for pid in (p1["id"], p2["id"]):
+            pk = next(p for p in det["packets"] if p["id"] == pid)
+            assert pk["status"] == "in_stock"
+        assert det["report"]["unpacketed_weight"] == 80.0
+
+        # now delete the two packet rows -> weight fully returns
+        for pid in (p1["id"], p2["id"]):
+            d = admin.delete(f"{API}/packets/{pid}", timeout=TIMEOUT)
+            assert d.status_code == 200, d.text
+        rep = report(admin, kapan["id"])["report"]
+        assert rep["unpacketed_weight"] == 100.0
+        assert rep["balanced"] is True and rep["difference"] == 0.0
+
+    def test_delete_packet_with_entries_still_rejected(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 1, 5.0).json()
+        e = issue(admin, p["id"], "sarine")
+        assert e.status_code == 200, e.text
+        # after issue - deletion refused
+        d = admin.delete(f"{API}/packets/{p['id']}", timeout=TIMEOUT)
+        assert d.status_code == 400
+        assert "entries" in d.json()["detail"].lower()
+        # even after receive, still has an entry
+        rec = receive(admin, e.json()["id"], return_pcs=1, return_weight=4.5)
+        assert rec.status_code == 200
+        d2 = admin.delete(f"{API}/packets/{p['id']}", timeout=TIMEOUT)
+        assert d2.status_code == 400
+        # cleanup
+        admin.delete(f"{API}/entries/{rec.json()['id']}", timeout=TIMEOUT)
+
+    def test_delete_packet_rbac_403_for_staff(self, admin, staff, kapan):
+        p = mk_packet(admin, kapan["id"], 1, 5.0).json()
+        r = staff.delete(f"{API}/packets/{p['id']}", timeout=TIMEOUT)
+        assert r.status_code == 403
+        # admin can still delete after
+        d = admin.delete(f"{API}/packets/{p['id']}", timeout=TIMEOUT)
+        assert d.status_code == 200
+
+    def test_delete_nonexistent_packet_404(self, admin):
+        r = admin.delete(f"{API}/packets/64b7f9c2f1a2b3c4d5e6f7a8", timeout=TIMEOUT)
+        assert r.status_code == 404

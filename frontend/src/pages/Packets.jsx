@@ -20,9 +20,9 @@ const TD = ({ children, right, cls = "" }) => (
   <td className={`border-r border-black/5 px-2.5 py-2 ${right ? "text-right tabular-nums" : ""} ${cls}`}>{children}</td>
 );
 
-export const EntryTable = ({ rows, onReceive, onDelete, onEdit, showKapan = true, showSr = false }) => {
+export const EntryTable = ({ rows, onReceive, onDelete, onEdit, onDeletePacket, showKapan = true, showSr = false }) => {
   const { can } = useAuth();
-  if (!rows.length) return <Empty testid="entries-empty" text="No packets found." />;
+  if (!rows.length) return <Empty testid="entries-empty" text="No packets in this stage yet." />;
   return (
     <div className="overflow-x-auto border border-black/10 bg-white">
       <table className="w-full min-w-[1200px] border-collapse text-xs">
@@ -53,7 +53,41 @@ export const EntryTable = ({ rows, onReceive, onDelete, onEdit, showKapan = true
           </tr>
         </thead>
         <tbody>
-          {rows.map((e, i) => (
+          {rows.map((e, i) =>
+            e._isPacket ? (
+              <tr key={e.id} data-testid={`stock-row-${e.packet_no}`} className="border-b border-black/5 bg-[#B4975A]/5 transition-colors hover:bg-[#B4975A]/10">
+                {showSr && <TD right cls="text-zinc-400">{i + 1}</TD>}
+                <TD cls="text-zinc-400">—</TD>
+                <TD cls="text-zinc-500">{e.date}</TD>
+                {showKapan && <TD cls="tabular-nums">{e.kapan_no}</TD>}
+                <TD cls="font-semibold tabular-nums">{e.packet_no}</TD>
+                <TD>{PROCESS_LABELS[e.process]}</TD>
+                <TD cls="text-zinc-400">—</TD>
+                <TD right>{e.pcs}</TD>
+                <TD right cls="font-semibold">{ct(e.weight)}</TD>
+                {Array.from({ length: 11 }).map((_, x) => (
+                  <TD key={x} cls="text-zinc-300">—</TD>
+                ))}
+                <TD>
+                  <span className="bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+                    In Stock
+                  </span>
+                </TD>
+                <td className="whitespace-nowrap px-2 py-2 text-right">
+                  <Link to={`/labels?ids=${e.id}`} data-testid={`print-label-${e.packet_no}`} title="Print label"
+                    className="mr-2 inline-block text-zinc-400 transition-colors hover:text-zinc-900">
+                    <Printer size={14} />
+                  </Link>
+                  {can("can_delete") && onDeletePacket && (
+                    <button data-testid={`packet-delete-${e.packet_no}`} onClick={() => onDeletePacket(e)}
+                      title="Delete packet and return its weight to the kapan"
+                      className="text-zinc-400 transition-colors hover:text-[#DC2626]">
+                      <Trash size={14} />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ) : (
             <tr key={e.id} data-testid={`entry-row-${e.jangad_no}`} className="border-b border-black/5 transition-colors hover:bg-zinc-50">
               {showSr && <TD right cls="text-zinc-400">{i + 1}</TD>}
               <TD>
@@ -107,59 +141,8 @@ export const EntryTable = ({ rows, onReceive, onDelete, onEdit, showKapan = true
                 )}
               </td>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-};
-
-export const PacketStockTable = ({ rows }) => {
-  if (!rows.length) return null;
-  const total = rows.reduce((a, p) => a + Number(p.weight || 0), 0);
-  const allIds = rows.map((p) => p.id).join(",");
-  return (
-    <div className="mb-4 overflow-x-auto border border-[#B4975A]/40 bg-[#B4975A]/5" data-testid="packet-stock-table">
-      <table className="w-full min-w-[620px] border-collapse text-xs">
-        <thead>
-          <tr className="border-b border-[#B4975A]/40 text-zinc-600">
-            <th className="px-2.5 py-2 text-left font-semibold uppercase tracking-wider" colSpan={6}>
-              In stock — not yet issued ({rows.length} packets · {ct(total)} cts) · issue them from Packet Issue
-            </th>
-            <th className="px-2.5 py-2 text-right">
-              <Link to={`/labels?ids=${allIds}`} data-testid="print-all-labels-button"
-                className="inline-flex items-center gap-1 border border-zinc-900 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors hover:bg-zinc-900 hover:text-white">
-                <Printer size={12} /> Print all labels
-              </Link>
-            </th>
-          </tr>
-          <tr className="border-b border-[#B4975A]/30 text-zinc-500">
-            <th className="px-2.5 py-1.5 text-left font-semibold uppercase tracking-wider">#</th>
-            <th className="px-2.5 py-1.5 text-left font-semibold uppercase tracking-wider">Packet No</th>
-            <th className="px-2.5 py-1.5 text-left font-semibold uppercase tracking-wider">Date</th>
-            <th className="px-2.5 py-1.5 text-right font-semibold uppercase tracking-wider">Pcs</th>
-            <th className="px-2.5 py-1.5 text-right font-semibold uppercase tracking-wider">Weight</th>
-            <th className="px-2.5 py-1.5 text-right font-semibold uppercase tracking-wider">Size</th>
-            <th className="px-2.5 py-1.5" />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((p, i) => (
-            <tr key={p.id} data-testid={`stock-row-${p.packet_no}`} className="border-b border-[#B4975A]/20">
-              <td className="px-2.5 py-1.5 text-zinc-400">{i + 1}</td>
-              <td className="px-2.5 py-1.5 font-semibold tabular-nums">{p.packet_no}</td>
-              <td className="px-2.5 py-1.5 text-zinc-500">{p.date}</td>
-              <td className="px-2.5 py-1.5 text-right tabular-nums">{p.pcs}</td>
-              <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums">{ct(p.weight)}</td>
-              <td className="px-2.5 py-1.5 text-right tabular-nums text-zinc-500">{ct(p.size)}</td>
-              <td className="px-2.5 py-1.5 text-right">
-                <Link to={`/labels?ids=${p.id}`} data-testid={`print-label-${p.packet_no}`}
-                  className="text-zinc-500 transition-colors hover:text-zinc-900" title="Print label">
-                  <Printer size={14} />
-                </Link>
-              </td>
-            </tr>
-          ))}
+            )
+          )}
         </tbody>
       </table>
     </div>

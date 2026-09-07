@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { toast } from "sonner";
-import { ArrowLeft, Plus } from "@phosphor-icons/react";
+import { ArrowLeft, Plus, Printer } from "@phosphor-icons/react";
 import { api, apiError, ct } from "@/lib/api";
 import { PROCESS_LABELS, PROCESS_ORDER } from "@/lib/processConfig";
 import { useAuth } from "@/context/AuthContext";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import ReceiveDialog from "@/components/ReceiveDialog";
 import EditEntryDialog from "@/components/EditEntryDialog";
 import BulkPacketDialog from "@/components/BulkPacketDialog";
-import { EntryTable, PacketStockTable } from "@/pages/Packets";
+import { EntryTable } from "@/pages/Packets";
 
 export default function KapanDetail() {
   const { id } = useParams();
@@ -32,13 +32,31 @@ export default function KapanDetail() {
   if (!k) return <div className="p-6 text-sm text-zinc-500">Loading…</div>;
 
   const p = k.report || {};
-  const rows = (k.entries || []).filter((e) => e.process === tab).map((e) => ({ ...e, kapan_no: k.kapan_no }));
+  const stockRows = (k.packets || [])
+    .filter((x) => x.process === tab && x.status !== "issued" && !x.last_process)
+    .map((x) => ({ ...x, _isPacket: true, kapan_no: k.kapan_no }));
+  const rows = [
+    ...stockRows,
+    ...(k.entries || []).filter((e) => e.process === tab).map((e) => ({ ...e, kapan_no: k.kapan_no })),
+  ];
 
   const removeEntry = async (e) => {
     if (!window.confirm(`Delete jangad ${e.jangad_no}? The packet returns to its previous weight.`)) return;
     try {
       await api.delete(`/entries/${e.id}`);
       toast.success("Deleted");
+      load();
+    } catch (err) {
+      toast.error(apiError(err));
+    }
+  };
+
+  const removePacket = async (pk) => {
+    if (!window.confirm(`Delete packet ${pk.packet_no}? Its ${Number(pk.weight || 0).toFixed(2)} cts return to the kapan's un-packeted weight.`))
+      return;
+    try {
+      await api.delete(`/packets/${pk.id}`);
+      toast.success("Packet deleted");
       load();
     } catch (err) {
       toast.error(apiError(err));
@@ -118,14 +136,23 @@ export default function KapanDetail() {
             {PROCESS_LABELS[tab]} register
           </h3>
           {can("can_create") && (
-            <Button data-testid="bulk-add-packets-button" onClick={() => setBulkOpen(true)}
-              className="h-9 rounded-none bg-zinc-900 text-xs font-semibold uppercase tracking-widest transition-colors hover:bg-zinc-800">
-              <Plus size={14} className="mr-1" /> Add Packets to {PROCESS_LABELS[tab]}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {stockRows.length > 0 && (
+                <Link to={`/labels?ids=${stockRows.map((x) => x.id).join(",")}`}
+                  data-testid="print-all-labels-button"
+                  className="inline-flex h-9 items-center gap-1 border border-zinc-900 px-3 text-xs font-semibold uppercase tracking-widest transition-colors hover:bg-zinc-900 hover:text-white">
+                  <Printer size={14} /> Print labels ({stockRows.length})
+                </Link>
+              )}
+              <Button data-testid="bulk-add-packets-button" onClick={() => setBulkOpen(true)}
+                className="h-9 rounded-none bg-zinc-900 text-xs font-semibold uppercase tracking-widest transition-colors hover:bg-zinc-800">
+                <Plus size={14} className="mr-1" /> Add Packets to {PROCESS_LABELS[tab]}
+              </Button>
+            </div>
           )}
         </div>
-        <PacketStockTable rows={(k.packets || []).filter((x) => x.process === tab && x.status !== "issued")} />
-        <EntryTable rows={rows} onReceive={setReceiving} onDelete={removeEntry} onEdit={setEditing} showKapan={false} showSr />
+        <EntryTable rows={rows} onReceive={setReceiving} onDelete={removeEntry} onEdit={setEditing}
+          onDeletePacket={removePacket} showKapan={false} showSr />
       </div>
 
       <BulkPacketDialog open={bulkOpen} onOpenChange={setBulkOpen} kapanId={id} process={tab}

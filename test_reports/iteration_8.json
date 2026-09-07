@@ -1,0 +1,20 @@
+{
+  "summary": "Iteration 9 focused testing of the user-reported bug: hard-delete of packets from the process register now correctly frees weight back to the kapan's Un-packeted figure. Added TestPacketDelete class (5 new tests) to /app/backend/tests/backend_test.py — all 59/59 backend tests pass (54 existing + 5 new). Frontend UI verified end-to-end: no packet-stock-table anywhere, un-issued packets appear as amber rows inside the single process register (data-testid stock-row-{packetNo}) with Jangad '—' + 'In Stock' badge, printer link and trash icon; deleting via the trash button shows the confirm dialog mentioning the returned cts, hard-deletes via DELETE /api/packets/{id}, reduces stock_weight and increases unpacketed_weight by the same amount (70.00 -> 80.00 for a 10.00 ct packet), balance bar stays BALANCED, 'Print labels (n)' count updates, staff RBAC hides the trash and DELETE returns 403. All the exact features listed in the review request were verified.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 1035 lines — consider splitting into routers/domain modules for maintainability (kapan, packets, entries, jangads, print, users).",
+    "delete_packet correctly hard-deletes; unpacketed_weight is derived (kapan.weight - sum(packet.original_weight)) so no manual reconciliation update is needed. This is a clean design.",
+    "Frontend removePacket() uses window.confirm with the exact cts returned — good UX; consider migrating to shadcn AlertDialog for consistency with the rest of the app in the future (non-blocking)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (59/59)", "frontend": "100% (all bug-verify + regression checks passed)"},
+  "test_credentials": "admin@polki.com/admin123, staff@polki.com/staff123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Each test creates its own TEST_/IT9xxxx kapan and deletes it at the end. The user's kapan 101.35 was NOT touched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 9 bug fix verified. Next iterations can rely on: (a) TestPacketDelete covers hard-delete + weight-free + RBAC + entries-block; (b) UI stock-row-{packetNo}, packet-delete-{packetNo}, print-label-{packetNo}, print-all-labels-button all exist and update reactively after delete. Toast 'Packet deleted' is shown on success. data-testid packet-stock-table has been removed and MUST stay removed.",
+  "rca of the issue": "The kapan report's unpacketed_weight is computed as kapan.weight - sum(packet.original_weight over active packets). Previously the UI had no packet-level trash icon after the standalone Packets tab was removed — the only trash on the register deleted the JANGAD ENTRY (design: returns packet to stock, weight remains allocated). Iteration 9 fix: (1) removed the separate amber PacketStockTable; (2) merged un-issued packets into the process register as amber rows; (3) each stock row now has a trash icon calling DELETE /api/packets/{id}, which enforces can_delete + refuses when entries exist + hard-deletes the packet document, causing unpacketed_weight to jump back up by exactly the deleted packet's original_weight."
+}

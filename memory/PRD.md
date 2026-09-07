@@ -68,6 +68,12 @@ Live kapan report: Kapan Weight = RC | Nail RC | Laser Loss | Polish Loss | Shap
 - Guards: issue weight > 0, issue weight ≤ packet's created weight (first entry), return + boil + RC ≤ issued (non-filling), return ≥ issued (filling), return pcs ≤ issued pcs (except Laser, which splits), 2-decimal caps
 - Test suite grew to **54 passing** backend tests
 
+## Iteration 9 — packet hard delete + stock table removed (2026-06)
+- Removed the separate amber "In stock — not yet issued" table; un-issued packets now appear as amber rows **inside** the process register itself (Jangad `—`, "In Stock" badge, no Receive button)
+- Each stock row has a **trash icon that hard-deletes the packet** (`DELETE /api/packets/{id}`), returning its weight to the kapan's Un-packeted figure; the confirm names the exact cts. Blocked (403) without `can_delete`, and refused if the packet still has jangad entries
+- Root cause of the reported bug: the only trash on a register deleted the *jangad entry*, which by design returns the packet to stock, so the packet (and its allocated weight) survived and Un-packeted stayed at 0.00
+- "Print labels (n)" moved into the register header; test suite now **59 passing**
+
 ## Backlog
 - P1: barcode on each packet — scan to issue (print jangad) and scan to receive (opens the return popup)
 - P1: validate issued weight against kapan remaining weight; prevent duplicate open issue per stage
