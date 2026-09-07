@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Trash, Barcode } from "@phosphor-icons/react";
 import { api, apiError, ct, today } from "@/lib/api";
-import { PROCESS_CONFIG, PROCESS_LABELS, PROCESS_ORDER } from "@/lib/processConfig";
+import { PROCESS_LABELS, PROCESS_ORDER } from "@/lib/processConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -18,19 +18,20 @@ const Field = ({ label, children }) => (
 );
 
 export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
-  const [form, setForm] = useState({
-    process: "sarine",
-    date: today(),
-    karigar_id: "",
-    karigar_name: "",
-    ds: "Single",
-  });
-  const [picked, setPicked] = useState([]);
+  const [form, setForm] = useState({ process: "sarine", date: today(), karigar_id: "", karigar_name: "" });
+  const [cart, setCart] = useState([]);
+  const [scan, setScan] = useState("");
   const [karigars, setKarigars] = useState([]);
   const [busy, setBusy] = useState(false);
+  const scanRef = useRef(null);
 
   useEffect(() => {
-    if (!open) setPicked([]);
+    if (!open) {
+      setCart([]);
+      setScan("");
+    } else {
+      setTimeout(() => scanRef.current?.focus(), 150);
+    }
   }, [open]);
 
   useEffect(() => {
@@ -40,31 +41,59 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
       .catch(() => setKarigars([]));
   }, [form.process, open]);
 
-  const cfg = PROCESS_CONFIG[form.process] || { issue: [] };
-  const chosen = useMemo(() => packets.filter((p) => picked.includes(p.id)), [packets, picked]);
-  const totals = chosen.reduce(
+  // Changing the process empties the cart — a jangad only ever holds one process.
+  const setProcess = (v) => {
+    setForm({ ...form, process: v, karigar_id: "", karigar_name: "" });
+    setCart([]);
+  };
+
+  const available = useMemo(
+    () => packets.filter((p) => p.process === form.process && !cart.some((c) => c.id === p.id)),
+    [packets, form.process, cart]
+  );
+
+  const totals = cart.reduce(
     (a, p) => ({ pcs: a.pcs + Number(p.pcs || 0), weight: a.weight + Number(p.weight || 0) }),
     { pcs: 0, weight: 0 }
   );
 
-  const toggle = (id) => setPicked((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  const allPicked = packets.length > 0 && picked.length === packets.length;
+  const add = (p) => {
+    if (cart.some((c) => c.id === p.id)) return toast.error(`${p.packet_no} is already in the list`);
+    if (p.status === "issued") return toast.error(`${p.packet_no} is already out with a karigar`);
+    if (p.process !== form.process)
+      return toast.error(`${p.packet_no} is in the ${PROCESS_LABELS[p.process]} list, not ${PROCESS_LABELS[form.process]}`);
+    setCart((c) => [...c, p]);
+  };
+
+  const scanAdd = async (e) => {
+    e.preventDefault();
+    const code = scan.trim();
+    if (!code) return;
+    try {
+      const { data } = await api.get("/packets/lookup", { params: { code } });
+      add(data);
+    } catch (err) {
+      toast.error(apiError(err));
+    } finally {
+      setScan("");
+      scanRef.current?.focus();
+    }
+  };
 
   const submit = async () => {
-    if (!picked.length) return toast.error("Select at least one packet");
+    if (!cart.length) return toast.error("Scan or add at least one packet");
     setBusy(true);
     try {
       const { data } = await api.post("/jangads", {
         process: form.process,
         date: form.date,
-        packet_ids: picked,
+        packet_ids: cart.map((p) => p.id),
         karigar_id: form.karigar_id || null,
         karigar_name: form.karigar_name,
-        ds: form.ds,
       });
       toast.success(`Jangad ${data.jangad_no} · ${data.count} packets issued`);
       onOpenChange(false);
-      setPicked([]);
+      setCart([]);
       onDone?.(data);
     } catch (e) {
       toast.error(apiError(e));
@@ -78,13 +107,13 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
       <DialogContent className="max-w-3xl rounded-none" data-testid="issue-dialog">
         <DialogHeader>
           <DialogTitle className="font-heading uppercase tracking-wide">
-            Issue Packets — one Jangad
+            Issue Packets — scan into the list
           </DialogTitle>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Field label="Process">
-            <Select value={form.process} onValueChange={(v) => setForm({ ...form, process: v, karigar_id: "", karigar_name: "" })}>
+            <Select value={form.process} onValueChange={setProcess}>
               <SelectTrigger data-testid="issue-process-select" className={inp}>
                 <SelectValue />
               </SelectTrigger>
@@ -101,7 +130,7 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
             <Input data-testid="issue-date-input" type="date" value={form.date}
               onChange={(e) => setForm({ ...form, date: e.target.value })} className={inp} />
           </Field>
-          <Field label="Karigar">
+          <Field label={`${PROCESS_LABELS[form.process]} Karigar`}>
             <Select
               value={form.karigar_id || "manual"}
               onValueChange={(v) => {
@@ -129,89 +158,113 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
                 onChange={(e) => setForm({ ...form, karigar_name: e.target.value })} className={inp} />
             </Field>
           )}
-          {cfg.issue.map((f) =>
-            f.type === "select" ? (
-              <Field key={f.key} label={f.label}>
-                <Select value={form[f.key]} onValueChange={(v) => setForm({ ...form, [f.key]: v })}>
-                  <SelectTrigger data-testid={`issue-${f.key}-select`} className={inp}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {f.options.map((o) => (
-                      <SelectItem key={o} value={o}>{o}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-            ) : (
-              <Field key={f.key} label={f.label}>
-                <Input data-testid={`issue-${f.key}-input`} type={f.type} step={f.step} value={form[f.key] ?? ""}
-                  onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} className={inp} />
-              </Field>
-            )
-          )}
         </div>
 
-        <div className="max-h-[38vh] overflow-auto border border-black/10">
-          <table className="w-full border-collapse text-xs" data-testid="issue-packet-table">
+        {karigars.length === 0 && (
+          <p className="border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-[#B4975A]" data-testid="issue-no-karigar-warning">
+            No karigar is registered for {PROCESS_LABELS[form.process]} — add one in Karigar, or type a name manually.
+          </p>
+        )}
+
+        <form onSubmit={scanAdd} className="flex items-end gap-2">
+          <div className="flex-1">
+            <Label className="text-[11px] uppercase tracking-wider text-zinc-600">
+              Scan packet barcode / type code
+            </Label>
+            <Input ref={scanRef} data-testid="issue-scan-input" value={scan} autoComplete="off"
+              placeholder="00042"
+              onChange={(e) => setScan(e.target.value)}
+              className={`${inp} font-heading text-base tracking-[0.2em]`} />
+          </div>
+          <Button type="submit" data-testid="issue-scan-add-button"
+            className="h-10 rounded-none bg-zinc-900 text-xs font-semibold uppercase tracking-widest">
+            <Barcode size={15} className="mr-1" /> Add
+          </Button>
+        </form>
+
+        <div className="max-h-[32vh] overflow-auto border border-black/10">
+          <table className="w-full border-collapse text-xs" data-testid="issue-cart-table">
             <thead className="sticky top-0">
               <tr className="bg-zinc-900 text-white">
-                <th className="px-2 py-2 text-left">
-                  <Checkbox data-testid="issue-select-all" checked={allPicked} className="rounded-none border-white/40"
-                    onCheckedChange={(c) => setPicked(c ? packets.map((p) => p.id) : [])} />
-                </th>
+                <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">#</th>
+                <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Code</th>
                 <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Kapan</th>
                 <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Packet</th>
                 <th className="px-2 py-2 text-right font-semibold uppercase tracking-wider">Pcs</th>
                 <th className="px-2 py-2 text-right font-semibold uppercase tracking-wider">Weight</th>
-                <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Last Process</th>
+                <th className="px-2 py-2" />
               </tr>
             </thead>
             <tbody>
-              {packets.length === 0 && (
+              {cart.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-zinc-500">
-                    No packets in stock. Create packets from a Kapan process register first.
+                  <td colSpan={7} className="px-3 py-6 text-center text-zinc-500">
+                    Nothing scanned yet — scan a packet sticker or pick one below.
                   </td>
                 </tr>
               )}
-              {packets.map((p) => (
-                <tr key={p.id} data-testid={`issue-packet-row-${p.packet_no}`}
-                  onClick={() => toggle(p.id)}
-                  className={`cursor-pointer border-b border-black/5 transition-colors ${picked.includes(p.id) ? "bg-[#B4975A]/10" : "hover:bg-zinc-50"}`}>
-                  <td className="px-2 py-1.5">
-                    <Checkbox data-testid={`issue-packet-check-${p.packet_no}`} checked={picked.includes(p.id)}
-                      onCheckedChange={() => toggle(p.id)} className="rounded-none" />
-                  </td>
+              {cart.map((p, i) => (
+                <tr key={p.id} className="border-b border-black/5" data-testid={`issue-cart-row-${p.packet_no}`}>
+                  <td className="px-2 py-1.5 text-zinc-400">{i + 1}</td>
+                  <td className="px-2 py-1.5 font-heading font-bold tabular-nums tracking-widest">{p.code || "—"}</td>
                   <td className="px-2 py-1.5 tabular-nums">{p.kapan_no}</td>
                   <td className="px-2 py-1.5 font-semibold tabular-nums">{p.packet_no}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{p.pcs}</td>
                   <td className="px-2 py-1.5 text-right font-semibold tabular-nums">{ct(p.weight)}</td>
-                  <td className="px-2 py-1.5 text-zinc-500">{PROCESS_LABELS[p.last_process] || "—"}</td>
+                  <td className="px-2 py-1.5 text-right">
+                    <button data-testid={`issue-cart-remove-${p.packet_no}`}
+                      onClick={() => setCart((c) => c.filter((x) => x.id !== p.id))}
+                      className="text-zinc-400 transition-colors hover:text-[#DC2626]">
+                      <Trash size={14} />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
 
-        {(form.process === "laser" || form.process === "polish") && (
-          <p className="border border-black/10 bg-zinc-50 px-3 py-2 text-xs text-zinc-600" data-testid="issue-expected-hint">
-            {form.process === "laser"
-              ? "H/W, Tops and Exp. Ret Pcs come from the packet — set them when creating packets in the Laser register."
-              : "D/S comes from the packet — set it when creating packets in the Polish register."}
-          </p>
-        )}
+        <details className="border border-black/10" data-testid="issue-available-wrap">
+          <summary className="cursor-pointer bg-zinc-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
+            {PROCESS_LABELS[form.process]} stock — {available.length} packet(s) available
+          </summary>
+          <div className="max-h-[24vh] overflow-auto">
+            <table className="w-full border-collapse text-xs" data-testid="issue-packet-table">
+              <tbody>
+                {available.length === 0 && (
+                  <tr>
+                    <td className="px-3 py-4 text-center text-zinc-500">
+                      No packets in the {PROCESS_LABELS[form.process]} list. Create them in the kapan's{" "}
+                      {PROCESS_LABELS[form.process]} register first.
+                    </td>
+                  </tr>
+                )}
+                {available.map((p) => (
+                  <tr key={p.id} data-testid={`issue-packet-row-${p.packet_no}`}
+                    onClick={() => add(p)}
+                    className="cursor-pointer border-b border-black/5 transition-colors hover:bg-[#B4975A]/10">
+                    <td className="px-2 py-1.5 font-heading font-bold tabular-nums tracking-widest">{p.code || "—"}</td>
+                    <td className="px-2 py-1.5 tabular-nums">{p.kapan_no}</td>
+                    <td className="px-2 py-1.5 font-semibold tabular-nums">{p.packet_no}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{p.pcs}</td>
+                    <td className="px-2 py-1.5 text-right font-semibold tabular-nums">{ct(p.weight)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border border-[#B4975A]/40 bg-[#B4975A]/5 px-3 py-2 text-xs" data-testid="issue-selection-summary">
-          <span>Selected: <b className="tabular-nums">{picked.length}</b> packets</span>
+          <span>In list: <b className="tabular-nums">{cart.length}</b> packets</span>
           <span>Total Pcs: <b className="tabular-nums">{totals.pcs}</b></span>
           <span>Total Weight: <b className="tabular-nums">{ct(totals.weight)}</b> cts</span>
         </div>
 
         <DialogFooter>
-          <Button data-testid="issue-submit-button" onClick={submit} disabled={busy || !picked.length}
+          <Button data-testid="issue-submit-button" onClick={submit} disabled={busy || !cart.length}
             className="h-10 rounded-none bg-zinc-900 text-xs font-semibold uppercase tracking-widest">
-            {busy ? "Issuing…" : `Issue ${picked.length || ""} Packets & Create Jangad`}
+            {busy ? "Issuing…" : `Issue ${cart.length || ""} Packets & Create Jangad`}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -37,6 +37,10 @@ Files: /app/backend/server.py, models.py, core.py; /app/frontend/src/{pages,comp
   under it. Never reused while a packet holds it; after 99999 the numbering wraps and
   reclaims the lowest code freed by deleted kapans/packets. Backfill script:
   /app/backend/scripts/backfill_packet_codes.py
+- 2026-06: Packet Issue is a scan-to-cart flow — scan/type the 5-digit code (GET /api/packets/lookup)
+  to add packets to a list, remove individually, or expand the process stock list to click-add.
+  Backend enforces: every packet must belong to the jangad's process, and a selected karigar
+  must be registered for that process (e.g. a ghat karigar can only take ghat packets).
 - Backend test suite: 69/69 passing (/app/backend/tests/backend_test.py)
 
 ## Backlog

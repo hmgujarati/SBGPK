@@ -603,6 +603,23 @@ async def create_jangad(payload: JangadCreate, user: dict = Depends(get_current_
     busy = [p["packet_no"] for p in packets if p.get("status") == "issued"]
     if busy:
         raise HTTPException(status_code=400, detail=f"Already issued and not received: {', '.join(busy)}")
+    wrong = [p["packet_no"] for p in packets if p.get("process") and p.get("process") != payload.process]
+    if wrong:
+        raise HTTPException(
+            status_code=400,
+            detail=f"These packets are not in the {PROCESS_LABELS.get(payload.process, payload.process)} "
+                   f"list: {', '.join(wrong)}",
+        )
+    if payload.karigar_id:
+        karigar = await db.karigars.find_one({"_id": oid(payload.karigar_id)})
+        if not karigar:
+            raise HTTPException(status_code=404, detail="Karigar not found")
+        if payload.process not in (karigar.get("processes") or []):
+            raise HTTPException(
+                status_code=400,
+                detail=f"{karigar.get('name')} is not a "
+                       f"{PROCESS_LABELS.get(payload.process, payload.process)} karigar",
+            )
 
     jangad_no = await next_jangad_no()
     entries = []
@@ -705,6 +722,21 @@ async def update_print_settings(payload: PrintSettings, user: dict = Depends(get
         raise HTTPException(status_code=400, detail="Sticker size must be greater than 0")
     await db.settings.update_one({"_id": "print"}, {"$set": data}, upsert=True)
     return data
+
+
+@api.get("/packets/lookup")
+async def lookup_packet(code: str = "", user: dict = Depends(get_current_user)):
+    """Find a packet by its scanned 5-digit code (or full packet number)."""
+    code = (code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Scan or type a packet code")
+    packet = await db.packets.find_one({"$or": [{"code": code}, {"packet_no": code}]})
+    if not packet:
+        raise HTTPException(status_code=404, detail=f"No packet with code {code}")
+    kapan = await db.kapans.find_one({"_id": packet["kapan_id"]}) or {}
+    item = serialize(packet)
+    item["kapan_no"] = kapan.get("kapan_no", "")
+    return item
 
 
 @api.get("/packets/labels")
