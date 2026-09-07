@@ -23,9 +23,7 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
     date: today(),
     karigar_id: "",
     karigar_name: "",
-    hw: "",
     ds: "Single",
-    expected_return_pcs: "",
   });
   const [picked, setPicked] = useState([]);
   const [karigars, setKarigars] = useState([]);
@@ -62,9 +60,7 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
         packet_ids: picked,
         karigar_id: form.karigar_id || null,
         karigar_name: form.karigar_name,
-        hw: form.hw,
         ds: form.ds,
-        expected_return_pcs: Number(form.expected_return_pcs || 0),
       });
       toast.success(`Jangad ${data.jangad_no} · ${data.count} packets issued`);
       onOpenChange(false);
@@ -197,6 +193,12 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
             </tbody>
           </table>
         </div>
+
+        {form.process === "laser" && (
+          <p className="border border-black/10 bg-zinc-50 px-3 py-2 text-xs text-zinc-600" data-testid="issue-expected-hint">
+            H/W and Tops come from the packet — set them when creating packets in the Laser register.
+          </p>
+        )}
 
         <div className="flex flex-wrap items-center justify-between gap-3 border border-[#B4975A]/40 bg-[#B4975A]/5 px-3 py-2 text-xs" data-testid="issue-selection-summary">
           <span>Selected: <b className="tabular-nums">{picked.length}</b> packets</span>

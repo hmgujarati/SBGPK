@@ -67,6 +67,12 @@ def compute_entry(doc: dict) -> dict:
     pcs = int(doc.get("pcs") or 0)
     doc["size"] = r2(weight / pcs) if pcs else 0.0
     doc["weight"] = weight
+    if process == "laser":
+        doc["tops"] = int(doc.get("tops") or 0)
+        doc["expected_return_pcs"] = pcs + doc["tops"]
+    else:
+        doc["tops"] = 0
+        doc["expected_return_pcs"] = 0
 
     if not doc.get("returned"):
         for k in ("loss", "loss_pct", "return_pct", "weight_gain", "net_weight"):
@@ -538,6 +544,9 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
             "original_weight": weight,
             "size": r2(weight / pcs) if pcs else 0.0,
             "status": "in_stock",
+            "hw": (row.hw or "") if payload.process == "laser" else "",
+            "tops": int(row.tops or 0) if payload.process == "laser" else 0,
+            "expected_return_pcs": (pcs + int(row.tops or 0)) if payload.process == "laser" else 0,
             "last_process": None,
             "current_process": None,
             "notes": "",
@@ -581,9 +590,9 @@ async def create_jangad(payload: JangadCreate, user: dict = Depends(get_current_
             "karigar_name": payload.karigar_name,
             "pcs": int(packet.get("pcs") or 0),
             "weight": r2(packet.get("weight")),
-            "hw": payload.hw if payload.process == "laser" else "",
+            "hw": (packet.get("hw") or "") if payload.process == "laser" else "",
             "ds": payload.ds if payload.process == "polish" else "",
-            "expected_return_pcs": int(payload.expected_return_pcs or 0) if payload.process == "laser" else 0,
+            "tops": int(packet.get("tops") or 0) if payload.process == "laser" else 0,
             "notes": payload.notes or "",
             "prev_process": packet.get("last_process"),
             "returned": False,
@@ -634,6 +643,7 @@ async def get_jangad_by_no(jangad_no: str, user: dict = Depends(get_current_user
         "kapan_type": kapan.get("type", ""),
         "hw": first.get("hw") or "",
         "ds": first.get("ds") or "",
+        "tops": first.get("tops") or 0,
         "expected_return_pcs": first.get("expected_return_pcs") or 0,
         "total_pcs": sum(int(e.get("pcs") or 0) for e in entries),
         "total_weight": r2(sum(r2(e.get("weight")) for e in entries)),
@@ -753,6 +763,7 @@ async def create_entry(payload: EntryCreate, user: dict = Depends(get_current_us
     if payload.process != "laser":
         doc["hw"] = ""
         doc["expected_return_pcs"] = 0
+        doc["tops"] = 0
     if payload.process != "polish":
         doc["ds"] = ""
     doc.update({
@@ -829,7 +840,7 @@ async def update_entry(entry_id: str, payload: EntryUpdate, user: dict = Depends
     data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     entry.update(data)
     if entry.get("process") != "laser":
-        entry["hw"], entry["expected_return_pcs"] = "", 0
+        entry["hw"], entry["expected_return_pcs"], entry["tops"] = "", 0, 0
     if entry.get("process") != "polish":
         entry["ds"] = ""
 

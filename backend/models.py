@@ -96,6 +96,8 @@ class PrintSettings(BaseModel):
 class PacketRow(BaseModel):
     pcs: int = 0
     weight: float = 0.0
+    hw: Optional[str] = ""
+    tops: Optional[int] = 0
 
 
 class BulkProcessPackets(BaseModel):
@@ -112,6 +114,7 @@ class JangadCreate(BaseModel):
     karigar_name: str = ""
     hw: Optional[str] = ""
     ds: Optional[str] = ""
+    tops: Optional[int] = 0
     expected_return_pcs: Optional[int] = 0
     notes: Optional[str] = ""
 
@@ -124,6 +127,7 @@ class EntryCreate(BaseModel):
     karigar_name: str = ""
     hw: Optional[str] = ""
     ds: Optional[str] = ""
+    tops: Optional[int] = 0
     expected_return_pcs: Optional[int] = 0
     notes: Optional[str] = ""
 
@@ -147,4 +151,5 @@ class EntryUpdate(EntryReturn):
     weight: Optional[float] = None
     hw: Optional[str] = None
     ds: Optional[str] = None
+    tops: Optional[int] = None
     expected_return_pcs: Optional[int] = None

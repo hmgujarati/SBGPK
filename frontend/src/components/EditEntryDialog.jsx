@@ -30,6 +30,7 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
       pcs: entry.pcs ?? "",
       weight: entry.weight != null ? String(entry.weight) : "",
       hw: entry.hw || "",
+      tops: entry.tops || "",
       expected_return_pcs: entry.expected_return_pcs || "",
       return_date: entry.return_date || "",
       return_pcs: entry.return_pcs ?? "",
@@ -65,6 +66,7 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
         pcs: Number(v.pcs || 0),
         weight: Number(v.weight || 0),
         hw: v.hw || "",
+        tops: Number(v.tops || 0),
         expected_return_pcs: Number(v.expected_return_pcs || 0),
       };
       if (entry.returned) {
@@ -124,9 +126,13 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
                 <Input data-testid="edit-hw-input" value={v.hw || ""}
                   onChange={(e) => setV({ ...v, hw: e.target.value })} className={inp} />
               </Field>
-              <Field label="Exp. Ret Pcs">
-                <Input data-testid="edit-exp-pcs-input" type="number" value={v.expected_return_pcs ?? ""}
-                  onChange={(e) => setV({ ...v, expected_return_pcs: e.target.value })} className={inp} />
+              <Field label="Tops">
+                <Input data-testid="edit-tops-input" type="number" value={v.tops ?? ""}
+                  onChange={(e) => setV({ ...v, tops: e.target.value })} className={inp} />
+              </Field>
+              <Field label="Exp. Ret Pcs (auto)">
+                <Input data-testid="edit-exp-pcs-display" readOnly
+                  value={Number(v.pcs || 0) + Number(v.tops || 0)} className={`${inp} bg-zinc-100`} />
               </Field>
             </>
           )}

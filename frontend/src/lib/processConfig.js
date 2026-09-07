@@ -29,16 +29,24 @@ const F = {
   hw: { key: "hw", label: "H / W", type: "text" },
   ds: { key: "ds", label: "D / S", type: "select", options: ["Double", "Single"] },
   exp: { key: "expected_return_pcs", label: "Exp. Ret Pcs", type: "number" },
+  tops: { key: "tops", label: "Tops", type: "number" },
   rc: { key: "rc", label: "RC", type: "number", step: "0.01" },
   nail_rc: { key: "nail_rc", label: "Nail / RC", type: "number", step: "0.01" },
   boil: { key: "return_boil", label: "Return Boil", type: "number", step: "0.01" },
   ls: { key: "ls_opening", label: "LS Opening", type: "text" },
 };
 
+export const PROCESS_CREATE_FIELDS = {
+  laser: [
+    { key: "hw", label: "H / W", type: "text" },
+    { key: "tops", label: "Tops", type: "number" },
+  ],
+};
+
 export const PROCESS_CONFIG = {
   sarine: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
   marking: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
-  laser: { issue: [F.hw, F.exp], ret: [F.boil, F.rc, F.nail_rc, F.ls], showLoss: true },
+  laser: { issue: [], ret: [F.boil, F.rc, F.nail_rc, F.ls], showLoss: true },
   shape: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
   ghat: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
   polish: { issue: [F.ds], ret: [F.boil, F.rc, F.nail_rc], showLoss: true, showRetPct: true },

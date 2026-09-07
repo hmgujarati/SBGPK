@@ -59,9 +59,7 @@ export default function Jangad() {
           </div>
           <div>
             <Meta label="Karigar" value={j.karigar_name || "—"} />
-            {j.hw ? <Meta label="H / W" value={j.hw} /> : null}
             {j.ds ? <Meta label="D / S" value={j.ds} /> : null}
-            {j.expected_return_pcs ? <Meta label="Exp. Return Pcs" value={j.expected_return_pcs} /> : null}
           </div>
         </div>
 
@@ -73,6 +71,13 @@ export default function Jangad() {
               <th className="px-2 py-2 text-right uppercase tracking-wider">Pcs</th>
               <th className="px-2 py-2 text-right uppercase tracking-wider">Weight (cts)</th>
               <th className="px-2 py-2 text-right uppercase tracking-wider">Size</th>
+              {j.process === "laser" && (
+                <>
+                  <th className="px-2 py-2 text-left uppercase tracking-wider">H / W</th>
+                  <th className="px-2 py-2 text-right uppercase tracking-wider">Tops</th>
+                  <th className="px-2 py-2 text-right uppercase tracking-wider">Exp Ret Pcs</th>
+                </>
+              )}
               <th className="px-2 py-2 text-right uppercase tracking-wider">Ret Pcs</th>
               <th className="px-2 py-2 text-right uppercase tracking-wider">Ret Wt</th>
             </tr>
@@ -85,6 +90,13 @@ export default function Jangad() {
                 <td className="px-2 py-1.5 text-right tabular-nums">{l.pcs}</td>
                 <td className="px-2 py-1.5 text-right font-semibold tabular-nums">{ct(l.weight)}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{ct(l.size)}</td>
+                {j.process === "laser" && (
+                  <>
+                    <td className="px-2 py-1.5 tabular-nums">{l.hw || "—"}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{l.tops || 0}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{l.expected_return_pcs || 0}</td>
+                  </>
+                )}
                 <td className="px-2 py-1.5 text-right tabular-nums">{l.returned ? l.return_pcs : ""}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{l.returned ? ct(l.return_weight) : ""}</td>
               </tr>
@@ -93,7 +105,7 @@ export default function Jangad() {
               <td className="px-2 py-2 uppercase tracking-wider" colSpan={2}>Total ({j.count || j.lines.length})</td>
               <td className="px-2 py-2 text-right tabular-nums">{j.total_pcs}</td>
               <td className="px-2 py-2 text-right tabular-nums">{ct(j.total_weight)}</td>
-              <td colSpan={3} />
+              <td colSpan={j.process === "laser" ? 6 : 3} />
             </tr>
           </tbody>
         </table>

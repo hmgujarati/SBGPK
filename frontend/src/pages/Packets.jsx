@@ -38,6 +38,8 @@ export const EntryTable = ({ rows, onReceive, onDelete, onEdit, onDeletePacket, 
             <TH right>Pcs</TH>
             <TH right>Weight</TH>
             <TH>H/W · D/S</TH>
+            <TH right>Tops</TH>
+            <TH right>Exp Ret</TH>
             <TH>Ret Date</TH>
             <TH right>Ret Pcs</TH>
             <TH right>Ret Wt</TH>
@@ -66,7 +68,10 @@ export const EntryTable = ({ rows, onReceive, onDelete, onEdit, onDeletePacket, 
                 <TD cls="text-zinc-400">—</TD>
                 <TD right>{e.pcs}</TD>
                 <TD right cls="font-semibold">{ct(e.weight)}</TD>
-                {Array.from({ length: 12 }).map((_, x) => (
+                <TD cls="text-zinc-500">{e.hw || "—"}</TD>
+                <TD right>{e.process === "laser" ? e.tops || 0 : "—"}</TD>
+                <TD right>{e.process === "laser" ? e.expected_return_pcs || 0 : "—"}</TD>
+                {Array.from({ length: 11 }).map((_, x) => (
                   <TD key={x} cls="text-zinc-300">—</TD>
                 ))}
                 <TD>
@@ -105,6 +110,8 @@ export const EntryTable = ({ rows, onReceive, onDelete, onEdit, onDeletePacket, 
               <TD right>{e.pcs}</TD>
               <TD right cls="font-semibold">{ct(e.weight)}</TD>
               <TD cls="text-zinc-500">{e.hw || e.ds || "—"}</TD>
+              <TD right>{e.process === "laser" ? e.tops || 0 : "—"}</TD>
+              <TD right>{e.process === "laser" ? e.expected_return_pcs || 0 : "—"}</TD>
               <TD cls="text-zinc-500">{e.return_date || "—"}</TD>
               <TD right>{e.returned ? e.return_pcs : "—"}</TD>
               <TD right>{e.returned ? ct(e.return_weight) : "—"}</TD>

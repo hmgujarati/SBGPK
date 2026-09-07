@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 
 const inp = "mt-1 h-10 rounded-none border-black/15 tabular-nums";
 const cell = "h-9 rounded-none border-black/15 tabular-nums";
-const emptyRow = () => ({ pcs: "", weight: "" });
+const emptyRow = () => ({ pcs: "", weight: "", hw: "", tops: "" });
 
 export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaining, onDone }) => {
   const [date, setDate] = useState(today());
@@ -32,13 +32,18 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
     [rows]
   );
 
+  const isLaser = process === "laser";
   const over = totals.weight > Number(remaining || 0) + 0.001;
   const setRow = (i, patch) => setRows((rs) => rs.map((r, x) => (x === i ? { ...r, ...patch } : r)));
 
   const submit = async () => {
     const payloadRows = rows
       .filter((r) => Number(r.weight || 0) > 0)
-      .map((r) => ({ pcs: Number(r.pcs || 0), weight: Number(r.weight || 0) }));
+      .map((r) => ({
+        pcs: Number(r.pcs || 0),
+        weight: Number(r.weight || 0),
+        ...(isLaser ? { hw: r.hw || "", tops: Number(r.tops || 0) } : {}),
+      }));
     if (!payloadRows.length) return toast.error("Enter at least one packet weight");
     setBusy(true);
     try {
@@ -82,6 +87,13 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
                 <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Pcs</th>
                 <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Weight</th>
                 <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Size</th>
+                {isLaser && (
+                  <>
+                    <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">H / W</th>
+                    <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Tops</th>
+                    <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Exp. Ret Pcs</th>
+                  </>
+                )}
                 <th className="px-2 py-2" />
               </tr>
             </thead>
@@ -100,6 +112,21 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
                         onChange={(e) => setRow(i, { weight: dec2(e.target.value) })} className={`${cell} w-28`} />
                     </td>
                     <td className="px-2 py-1.5 tabular-nums text-zinc-500" data-testid={`bulk-size-${i}`}>{size}</td>
+                    {isLaser && (
+                      <>
+                        <td className="px-2 py-1.5">
+                          <Input data-testid={`bulk-hw-${i}`} type="text" value={r.hw || ""}
+                            onChange={(e) => setRow(i, { hw: e.target.value })} className={`${cell} w-24`} />
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <Input data-testid={`bulk-tops-${i}`} type="number" value={r.tops ?? ""}
+                            onChange={(e) => setRow(i, { tops: e.target.value })} className={`${cell} w-20`} />
+                        </td>
+                        <td className="px-2 py-1.5 font-semibold tabular-nums text-zinc-700" data-testid={`bulk-exp-ret-${i}`}>
+                          {Number(r.pcs || 0) + Number(r.tops || 0)}
+                        </td>
+                      </>
+                    )}
                     <td className="px-2 py-1.5 text-right">
                       {rows.length > 1 && (
                         <button data-testid={`bulk-remove-${i}`}
@@ -116,7 +143,7 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
                 <td className="px-2 py-2 uppercase tracking-wider">Total</td>
                 <td className="px-2 py-2 tabular-nums">{totals.pcs}</td>
                 <td className="px-2 py-2 tabular-nums">{ct(totals.weight)}</td>
-                <td colSpan={2} />
+                <td colSpan={isLaser ? 5 : 2} />
               </tr>
             </tbody>
           </table>
