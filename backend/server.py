@@ -46,12 +46,28 @@ logger = logging.getLogger(__name__)
 LOSS_PROCESSES = {"laser", "shape", "ghat", "polish", "table_polish", "nats", "filling"}
 
 
+MAX_PACKET_CODE = 99999
+
+
 async def next_packet_code() -> str:
-    """Global, never-reused 5-digit packet identifier (00001, 00002, ...)."""
+    """Global 5-digit packet identifier (00001 … 99999), issued in order.
+    Codes are never reused while a packet still holds them; once the range is
+    exhausted the numbering wraps and reclaims the lowest code that is free
+    (freed when old kapans / packets are deleted)."""
     doc = await db.counters.find_one_and_update(
         {"_id": "packet_code"}, {"$inc": {"seq": 1}}, upsert=True, return_document=True
     )
-    return f"{doc['seq']:05d}"
+    n = int(doc["seq"])
+    if 1 <= n <= MAX_PACKET_CODE and not await db.packets.count_documents({"code": f"{n:05d}"}, limit=1):
+        return f"{n:05d}"
+
+    used = {p["code"] for p in await db.packets.find({}, {"code": 1}).to_list(200000) if p.get("code")}
+    for i in range(1, MAX_PACKET_CODE + 1):
+        code = f"{i:05d}"
+        if code not in used:
+            await db.counters.update_one({"_id": "packet_code"}, {"$set": {"seq": i}}, upsert=True)
+            return code
+    raise HTTPException(status_code=409, detail="All 99999 packet codes are in use — delete old kapans to free codes")
 
 
 def oid(value: str) -> ObjectId:

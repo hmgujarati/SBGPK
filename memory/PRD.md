@@ -32,6 +32,11 @@ Files: /app/backend/server.py, models.py, core.py; /app/frontend/src/{pages,comp
 - 2026-06: Packet label serial now = position within its own process register (was kapan-wide seq)
 - 2026-06: Jangad prints as ONE A4 portrait sheet with two copies side by side
   (Office Copy | Karigar Copy) separated by a dashed cut line
+- 2026-06: Packet code — global 5-digit id (00001…99999) from the `packet_code` counter,
+  stored on the packet, encoded in the barcode (CODE128, double-width bars) and printed
+  under it. Never reused while a packet holds it; after 99999 the numbering wraps and
+  reclaims the lowest code freed by deleted kapans/packets. Backfill script:
+  /app/backend/scripts/backfill_packet_codes.py
 - Backend test suite: 69/69 passing (/app/backend/tests/backend_test.py)
 
 ## Backlog
