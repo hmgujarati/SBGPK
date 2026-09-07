@@ -31,6 +31,7 @@ from models import (
     KarigarCreate,
     LoginRequest,
     BulkProcessPackets,
+    JangadCreate,
     PacketCreate,
     Permissions,
     UserCreate,
@@ -471,7 +472,7 @@ async def create_packet(kapan_id: str, payload: PacketCreate, user: dict = Depen
 
 @api.post("/kapans/{kapan_id}/process-packets")
 async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, user: dict = Depends(get_current_user)):
-    """Create several packets from a kapan and issue them all into one process."""
+    """Create several packets from a kapan's un-packeted rough, tagged to one process register."""
     require(user, "can_create")
     if payload.process not in PROCESSES:
         raise HTTPException(status_code=400, detail="Unknown process")
@@ -502,37 +503,62 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
             "kapan_id": _kid,
             "seq": seq,
             "packet_no": f"{kapan['kapan_no']}-{seq:02d}",
+            "process": payload.process,
             "date": payload.date,
             "pcs": pcs,
             "weight": weight,
             "original_pcs": pcs,
             "original_weight": weight,
             "size": r2(weight / pcs) if pcs else 0.0,
-            "status": "issued",
+            "status": "in_stock",
             "last_process": None,
-            "current_process": payload.process,
+            "current_process": None,
             "notes": "",
             "created_at": now_utc(),
             "created_by": user.get("name"),
         }
-        pres = await db.packets.insert_one(packet)
-        packet["_id"] = pres.inserted_id
+        res = await db.packets.insert_one(packet)
+        packet["_id"] = res.inserted_id
+        created.append(serialize(packet))
 
+    return {"created": created, "count": len(created), "total_weight": total}
+
+
+@api.post("/jangads")
+async def create_jangad(payload: JangadCreate, user: dict = Depends(get_current_user)):
+    """Issue several packets to one karigar under a single jangad number."""
+    require(user, "can_create")
+    if payload.process not in PROCESSES:
+        raise HTTPException(status_code=400, detail="Unknown process")
+    if not payload.packet_ids:
+        raise HTTPException(status_code=400, detail="Select at least one packet to issue")
+
+    ids = [oid(p) for p in payload.packet_ids]
+    packets = await db.packets.find({"_id": {"$in": ids}}).to_list(500)
+    if len(packets) != len(ids):
+        raise HTTPException(status_code=404, detail="One or more packets not found")
+    busy = [p["packet_no"] for p in packets if p.get("status") == "issued"]
+    if busy:
+        raise HTTPException(status_code=400, detail=f"Already issued and not received: {', '.join(busy)}")
+
+    jangad_no = await next_jangad_no()
+    entries = []
+    for packet in packets:
         entry = {
-            "packet_id": pres.inserted_id,
-            "kapan_id": _kid,
-            "packet_no": packet["packet_no"],
+            "packet_id": packet["_id"],
+            "kapan_id": packet["kapan_id"],
+            "packet_no": packet.get("packet_no"),
             "process": payload.process,
             "date": payload.date,
             "karigar_id": payload.karigar_id,
             "karigar_name": payload.karigar_name,
-            "pcs": pcs,
-            "weight": weight,
-            "hw": row.hw if payload.process == "laser" else "",
-            "ds": row.ds if payload.process == "polish" else "",
-            "expected_return_pcs": int(row.expected_return_pcs or 0) if payload.process == "laser" else 0,
-            "notes": "",
-            "prev_process": None,
+            "pcs": int(packet.get("pcs") or 0),
+            "weight": r2(packet.get("weight")),
+            "hw": payload.hw if payload.process == "laser" else "",
+            "ds": payload.ds if payload.process == "polish" else "",
+            "expected_return_pcs": int(payload.expected_return_pcs or 0) if payload.process == "laser" else 0,
+            "notes": payload.notes or "",
+            "prev_process": packet.get("last_process"),
             "returned": False,
             "return_date": None,
             "return_pcs": 0,
@@ -541,16 +567,58 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
             "rc": 0.0,
             "nail_rc": 0.0,
             "ls_opening": "",
-            "jangad_no": await next_jangad_no(),
+            "jangad_no": jangad_no,
             "created_at": now_utc(),
             "created_by": user.get("name"),
         }
         compute_entry(entry)
-        eres = await db.entries.insert_one(entry)
-        entry["_id"] = eres.inserted_id
-        created.append({"packet": serialize(packet), "entry": serialize(entry)})
+        res = await db.entries.insert_one(entry)
+        entry["_id"] = res.inserted_id
+        entries.append(serialize(entry))
+        await db.packets.update_one(
+            {"_id": packet["_id"]},
+            {"$set": {"status": "issued", "current_process": payload.process}},
+        )
 
-    return {"created": created, "count": len(created), "total_weight": total}
+    return {
+        "jangad_no": jangad_no,
+        "count": len(entries),
+        "total_weight": r2(sum(e["weight"] for e in entries)),
+        "entries": entries,
+    }
+
+
+@api.get("/jangads/{jangad_no}")
+async def get_jangad_by_no(jangad_no: str, user: dict = Depends(get_current_user)):
+    entries = await db.entries.find({"jangad_no": jangad_no}).sort("created_at", 1).to_list(500)
+    if not entries:
+        raise HTTPException(status_code=404, detail="Jangad not found")
+    kapans = {k["_id"]: k for k in await db.kapans.find().to_list(2000)}
+    first = entries[0]
+    kapan = kapans.get(first["kapan_id"]) or {}
+    return {
+        "jangad_no": jangad_no,
+        "date": first.get("date"),
+        "process": first.get("process"),
+        "process_label": PROCESS_LABELS.get(first.get("process"), first.get("process")),
+        "karigar_name": first.get("karigar_name") or "",
+        "issued_by": first.get("created_by") or "",
+        "kapan_no": kapan.get("kapan_no", ""),
+        "kapan_type": kapan.get("type", ""),
+        "hw": first.get("hw") or "",
+        "ds": first.get("ds") or "",
+        "expected_return_pcs": first.get("expected_return_pcs") or 0,
+        "total_pcs": sum(int(e.get("pcs") or 0) for e in entries),
+        "total_weight": r2(sum(r2(e.get("weight")) for e in entries)),
+        "returned_all": all(e.get("returned") for e in entries),
+        "lines": [
+            {
+                **serialize(e),
+                "kapan_no": (kapans.get(e["kapan_id"]) or {}).get("kapan_no", ""),
+            }
+            for e in entries
+        ],
+    }
 
 
 @api.delete("/packets/{packet_id}")
@@ -773,7 +841,7 @@ async def dashboard(user: dict = Depends(get_current_user)):
         "total_weight": total_weight,
         "in_process_weight": in_process,
         "total_loss": total_loss,
-        "open_jangads": sum(1 for e in entries if not e.get("returned")),
+        "open_jangads": len({e.get("jangad_no") for e in entries if not e.get("returned") and e.get("jangad_no")}),
         "packet_count": len(packets),
         "stock_packets": sum(1 for p in packets if p.get("status") != "issued"),
         "karigar_count": await db.karigars.count_documents({"active": True}),

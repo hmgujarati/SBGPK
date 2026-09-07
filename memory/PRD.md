@@ -49,6 +49,13 @@ Live kapan report: Kapan Weight = RC | Nail RC | Laser Loss | Polish Loss | Shap
 - Process tabs show a live count of jangads, and the packet total moved into the kapan subtitle line
 - Moving a packet to the next stage is done from the **Packet Issue** page (in-stock packet picker)
 
+## Iteration 5 — create-only packets + one jangad for many packets (2026-06)
+- "Add Packets to {Process}" now **only creates packets** (status in stock, tagged to that process register): rows are Pcs + Weight with auto Size, no karigar, no jangad
+- Each process tab shows an amber "In stock — not yet issued" table above its jangad register
+- **Issuing happens only in Packet Issue**: the dialog multi-selects in-stock packets (with select-all and a live Selected / Total Pcs / Total Weight summary), takes Process + Date + Karigar (and H/W + Exp Ret Pcs for Laser, D/S for Polish) once for the batch, and creates **one shared jangad number** — `POST /api/jangads`
+- Jangad print page is per jangad number (`/jangad/{jangadNo}`, `GET /api/jangads/{no}`): all packets as numbered lines with a bold total row and a single signature block on one paper
+- Dashboard "Open Jangads" counts unique jangad numbers
+
 ## Backlog
 - P1: barcode on each packet — scan to issue (print jangad) and scan to receive (opens the return popup)
 - P1: validate issued weight against kapan remaining weight; prevent duplicate open issue per stage

@@ -9,7 +9,7 @@ import { PageHeader, Stat } from "@/components/Bits";
 import { Button } from "@/components/ui/button";
 import ReceiveDialog from "@/components/ReceiveDialog";
 import BulkPacketDialog from "@/components/BulkPacketDialog";
-import { EntryTable } from "@/pages/Packets";
+import { EntryTable, PacketStockTable } from "@/pages/Packets";
 
 export default function KapanDetail() {
   const { id } = useParams();
@@ -122,6 +122,7 @@ export default function KapanDetail() {
             </Button>
           )}
         </div>
+        <PacketStockTable rows={(k.packets || []).filter((x) => x.process === tab && x.status !== "issued")} />
         <EntryTable rows={rows} onReceive={setReceiving} onDelete={removeEntry} showKapan={false} showSr />
       </div>
 

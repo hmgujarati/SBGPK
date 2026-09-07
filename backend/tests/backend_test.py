@@ -411,12 +411,23 @@ class TestMisc:
         admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
 
 
-# ---------------------------------------------------------------- iteration 3: bulk create+issue in a process
-def bulk(sess, kapan_id, process, rows, date="2026-07-05", karigar_name="TEST_BULK_K", karigar_id=None):
+# ---------------------------------------------------------------- iteration 5: bulk create (create-only) + jangad multi-packet issue
+def bulk(sess, kapan_id, process, rows, date="2026-07-05"):
+    """Iteration 5: process-packets is CREATE-ONLY (no karigar, no jangad)."""
     return sess.post(
         f"{API}/kapans/{kapan_id}/process-packets",
-        json={"process": process, "date": date, "karigar_id": karigar_id,
-              "karigar_name": karigar_name, "rows": rows},
+        json={"process": process, "date": date, "rows": rows},
+        timeout=TIMEOUT,
+    )
+
+
+def issue_jangad(sess, process, packet_ids, karigar_name="TEST_JG_K",
+                 karigar_id=None, date="2026-07-06", hw="", ds="", expected_return_pcs=0):
+    return sess.post(
+        f"{API}/jangads",
+        json={"process": process, "date": date, "packet_ids": packet_ids,
+              "karigar_id": karigar_id, "karigar_name": karigar_name,
+              "hw": hw, "ds": ds, "expected_return_pcs": expected_return_pcs},
         timeout=TIMEOUT,
     )
 
@@ -428,7 +439,7 @@ class TestBulkProcessPackets:
         yield k
         admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
 
-    def test_bulk_creates_packets_and_jangads(self, admin, kapan):
+    def test_bulk_creates_packets_only_no_entries(self, admin, kapan):
         before = report(admin, kapan["id"])["report"]
         rows = [{"pcs": 2, "weight": 10.0}, {"pcs": 4, "weight": 20.5}, {"pcs": 1, "weight": 5.25}]
         r = bulk(admin, kapan["id"], "sarine", rows)
@@ -436,34 +447,37 @@ class TestBulkProcessPackets:
         d = r.json()
         assert d["count"] == 3
         assert d["total_weight"] == 35.75
-        pkt_nos, jg_nos = [], []
-        for i, item in enumerate(d["created"]):
-            pk, en = item["packet"], item["entry"]
-            assert "_id" not in pk and "_id" not in en
-            assert pk["status"] == "issued" and pk["last_process"] is None
+        assert isinstance(d["created"], list) and len(d["created"]) == 3
+        pkt_nos = []
+        for i, pk in enumerate(d["created"]):
+            # New shape: created items are packets directly, not {packet, entry}
+            assert "packet" not in pk and "entry" not in pk
+            assert "_id" not in pk
+            assert pk["status"] == "in_stock"
+            assert pk["last_process"] is None
+            assert pk["process"] == "sarine"
             assert pk["packet_no"].startswith(f"{kapan['kapan_no']}-")
             assert pk["original_weight"] == rows[i]["weight"]
-            assert pk["size"] == float(Decimal(str(rows[i]["weight"] / rows[i]["pcs"])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-            assert en["process"] == "sarine" and en["returned"] is False
-            assert en["karigar_name"] == "TEST_BULK_K"
-            assert en["weight"] == rows[i]["weight"] and en["pcs"] == rows[i]["pcs"]
-            # process isolation: sarine batch must not carry laser/polish fields
-            assert en["hw"] == "" and en["ds"] == "" and en["expected_return_pcs"] == 0
+            assert pk["size"] == float(Decimal(str(rows[i]["weight"] / rows[i]["pcs"]))
+                                       .quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
             pkt_nos.append(pk["packet_no"])
-            jg_nos.append(en["jangad_no"])
-        assert len(set(pkt_nos)) == 3 and len(set(jg_nos)) == 3
+        assert len(set(pkt_nos)) == 3
         seqs = sorted(int(n.split("-")[-1]) for n in pkt_nos)
-        assert seqs == list(range(seqs[0], seqs[0] + 3)), pkt_nos
+        assert seqs == list(range(seqs[0], seqs[0] + 3))
 
-        # persistence via GET
+        # Persistence: packets exist as in_stock, no entries created
         det = report(admin, kapan["id"])
         got = {p["packet_no"]: p for p in det["packets"]}
         for n in pkt_nos:
-            assert n in got and got[n]["status"] == "issued"
-        ent = [e for e in det["entries"] if e["process"] == "sarine" and e["jangad_no"] in jg_nos]
-        assert len(ent) == 3
+            assert n in got and got[n]["status"] == "in_stock"
+        # No entries yet for these packets
+        pids = {p["id"] for p in d["created"]}
+        assert not [e for e in det["entries"] if e.get("packet_id") in pids]
+
         rep = det["report"]
-        assert rep["in_process_weight"] == round(before["in_process_weight"] + 35.75, 2)
+        # In-process unchanged (nothing issued), unpacketed dropped, stock rose
+        assert rep["in_process_weight"] == before["in_process_weight"]
+        assert rep["unpacketed_weight"] == round(before["unpacketed_weight"] - 35.75, 2)
         assert rep["balanced"] is True and rep["difference"] == 0.0
 
     def test_over_remaining_rejected(self, admin, kapan):
@@ -482,43 +496,16 @@ class TestBulkProcessPackets:
         r = bulk(admin, "64b7f9c2f1a2b3c4d5e6f7a8", "sarine", [{"pcs": 1, "weight": 1.0}])
         assert r.status_code == 404, r.text
 
-    def test_laser_keeps_hw_expected_polish_keeps_ds_nats_none(self, admin, kapan):
-        r = bulk(admin, kapan["id"], "laser",
-                 [{"pcs": 2, "weight": 8.0, "hw": "3x4", "ds": "Double", "expected_return_pcs": 5}])
+    def test_process_isolation_between_registers(self, admin, kapan):
+        """A packet created under one process register belongs only to that register."""
+        r = bulk(admin, kapan["id"], "laser", [{"pcs": 2, "weight": 6.0}])
         assert r.status_code == 200, r.text
-        en = r.json()["created"][0]["entry"]
-        assert en["hw"] == "3x4" and en["expected_return_pcs"] == 5 and en["ds"] == ""
-
-        r = bulk(admin, kapan["id"], "polish",
-                 [{"pcs": 2, "weight": 8.0, "hw": "9x9", "ds": "Double", "expected_return_pcs": 7}])
-        assert r.status_code == 200, r.text
-        en = r.json()["created"][0]["entry"]
-        assert en["ds"] == "Double" and en["hw"] == "" and en["expected_return_pcs"] == 0
-
-        r = bulk(admin, kapan["id"], "nats",
-                 [{"pcs": 2, "weight": 6.0, "hw": "1x1", "ds": "Single", "expected_return_pcs": 3}])
-        assert r.status_code == 200, r.text
-        en = r.json()["created"][0]["entry"]
-        assert en["hw"] == "" and en["ds"] == "" and en["expected_return_pcs"] == 0
-
-    def test_bulk_packet_can_be_received(self, admin):
-        k = new_kapan(admin, 60.0, 4)
-        try:
-            r = bulk(admin, k["id"], "sarine", [{"pcs": 3, "weight": 30.0}])
-            assert r.status_code == 200, r.text
-            item = r.json()["created"][0]
-            rec = receive(admin, item["entry"]["id"], return_pcs=3, return_weight=29.5)
-            assert rec.status_code == 200, rec.text
-            assert rec.json()["loss"] == 0.5
-            det = report(admin, k["id"])
-            pk = next(p for p in det["packets"] if p["packet_no"] == item["packet"]["packet_no"])
-            assert pk["weight"] == 29.5 and pk["status"] == "in_stock"
-            assert pk["last_process"] == "sarine"
-            rep = det["report"]
-            assert rep["other_loss"] == 0.5
-            assert rep["balanced"] is True and rep["difference"] == 0.0
-        finally:
-            admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+        pkt = r.json()["created"][0]
+        assert pkt["process"] == "laser"
+        # in-stock listing should show it as laser register
+        det = report(admin, kapan["id"])
+        got = next(p for p in det["packets"] if p["id"] == pkt["id"])
+        assert got["process"] == "laser"
 
     def test_rbac_no_create_permission_gets_403(self, admin, kapan):
         email = f"TEST_nocreate_{uuid.uuid4().hex[:8]}@polki.com"
@@ -535,5 +522,128 @@ class TestBulkProcessPackets:
             s.headers.update({"Authorization": f"Bearer {lr.json()['token']}"})
             r = bulk(s, kapan["id"], "sarine", [{"pcs": 1, "weight": 1.0}])
             assert r.status_code == 403, r.text
+            # Also POST /api/jangads is blocked
+            r = issue_jangad(s, "sarine", ["64b7f9c2f1a2b3c4d5e6f7a8"])
+            assert r.status_code == 403, r.text
         finally:
             admin.delete(f"{API}/users/{uid}", timeout=TIMEOUT)
+
+
+class TestJangads:
+    """Iteration 5: POST /api/jangads issues multiple packets under ONE jangad_no."""
+
+    @pytest.fixture(scope="class")
+    def kapan(self, admin):
+        k = new_kapan(admin, 200.0, 10)
+        yield k
+        admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+    def _make_packets(self, admin, kapan, count=3, weight_each=10.0, process="sarine"):
+        rows = [{"pcs": 2, "weight": weight_each} for _ in range(count)]
+        r = bulk(admin, kapan["id"], process, rows)
+        assert r.status_code == 200, r.text
+        return [p["id"] for p in r.json()["created"]], [p["packet_no"] for p in r.json()["created"]]
+
+    def test_issue_multiple_packets_one_jangad(self, admin, kapan):
+        pids, pnos = self._make_packets(admin, kapan, 3, 10.0, "sarine")
+        before = report(admin, kapan["id"])["report"]
+        r = issue_jangad(admin, "sarine", pids, karigar_name="TEST_MULTI_K")
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["count"] == 3
+        assert d["total_weight"] == 30.0
+        assert d["jangad_no"].startswith("JG-")
+        # All entries share the same jangad_no
+        jg_nos = {e["jangad_no"] for e in d["entries"]}
+        assert jg_nos == {d["jangad_no"]}
+        # All packets flipped to issued
+        det = report(admin, kapan["id"])
+        for pid in pids:
+            pk = next(p for p in det["packets"] if p["id"] == pid)
+            assert pk["status"] == "issued"
+        rep = det["report"]
+        assert rep["in_process_weight"] == round(before["in_process_weight"] + 30.0, 2)
+        assert rep["balanced"] is True and rep["difference"] == 0.0
+
+    def test_double_issue_rejected(self, admin, kapan):
+        pids, pnos = self._make_packets(admin, kapan, 2, 5.0, "sarine")
+        r1 = issue_jangad(admin, "sarine", pids)
+        assert r1.status_code == 200, r1.text
+        r2 = issue_jangad(admin, "sarine", pids)
+        assert r2.status_code == 400
+        detail = r2.json()["detail"].lower()
+        assert "already issued" in detail
+        for n in pnos:
+            assert n in r2.json()["detail"]
+
+    def test_laser_stores_hw_expected_polish_stores_ds_nats_none(self, admin, kapan):
+        pids, _ = self._make_packets(admin, kapan, 2, 5.0, "laser")
+        r = issue_jangad(admin, "laser", pids, hw="4x5", ds="Double", expected_return_pcs=7)
+        assert r.status_code == 200, r.text
+        for e in r.json()["entries"]:
+            assert e["hw"] == "4x5" and e["expected_return_pcs"] == 7 and e["ds"] == ""
+
+        pids2, _ = self._make_packets(admin, kapan, 2, 5.0, "polish")
+        r = issue_jangad(admin, "polish", pids2, hw="9x9", ds="Single", expected_return_pcs=3)
+        assert r.status_code == 200, r.text
+        for e in r.json()["entries"]:
+            assert e["ds"] == "Single" and e["hw"] == "" and e["expected_return_pcs"] == 0
+
+        pids3, _ = self._make_packets(admin, kapan, 1, 4.0, "nats")
+        r = issue_jangad(admin, "nats", pids3, hw="1x1", ds="Single", expected_return_pcs=2)
+        assert r.status_code == 200, r.text
+        e = r.json()["entries"][0]
+        assert e["hw"] == "" and e["ds"] == "" and e["expected_return_pcs"] == 0
+
+    def test_get_jangad_by_no_returns_lines_and_totals(self, admin, kapan):
+        pids, pnos = self._make_packets(admin, kapan, 2, 7.5, "shape")
+        j = issue_jangad(admin, "shape", pids, karigar_name="TEST_SLIP_K").json()
+        r = admin.get(f"{API}/jangads/{j['jangad_no']}", timeout=TIMEOUT)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["jangad_no"] == j["jangad_no"]
+        assert d["process"] == "shape"
+        assert d["process_label"]
+        assert d["karigar_name"] == "TEST_SLIP_K"
+        assert d["kapan_no"] == kapan["kapan_no"]
+        assert d["total_pcs"] == 4  # 2 packets * 2 pcs
+        assert d["total_weight"] == 15.0
+        assert len(d["lines"]) == 2
+        assert {ln["packet_no"] for ln in d["lines"]} == set(pnos)
+        for ln in d["lines"]:
+            assert "_id" not in ln
+            assert ln["jangad_no"] == j["jangad_no"]
+
+    def test_receive_still_works_per_packet(self, admin, kapan):
+        pids, _ = self._make_packets(admin, kapan, 1, 6.0, "sarine")
+        j = issue_jangad(admin, "sarine", pids).json()
+        eid = j["entries"][0]["id"]
+        rec = receive(admin, eid, return_pcs=2, return_weight=5.5)
+        assert rec.status_code == 200, rec.text
+        det = report(admin, kapan["id"])
+        pk = next(p for p in det["packets"] if p["id"] == pids[0])
+        assert pk["status"] == "in_stock"
+        assert pk["weight"] == 5.5
+        assert pk["last_process"] == "sarine"
+
+    def test_jangad_bad_inputs(self, admin, kapan):
+        # empty packet_ids
+        r = issue_jangad(admin, "sarine", [])
+        assert r.status_code == 400
+        # unknown process
+        r = issue_jangad(admin, "nonsense", ["64b7f9c2f1a2b3c4d5e6f7a8"])
+        assert r.status_code == 400
+        # non-existent packet id
+        r = issue_jangad(admin, "sarine", ["64b7f9c2f1a2b3c4d5e6f7a8"])
+        assert r.status_code == 404
+
+    def test_dashboard_open_jangads_counts_unique(self, admin, kapan):
+        """The Jangads/open count should treat a shared jangad_no as one open jangad."""
+        pids, _ = self._make_packets(admin, kapan, 2, 3.0, "marking")
+        before = admin.get(f"{API}/dashboard", timeout=TIMEOUT).json()["open_jangads"]
+        j = issue_jangad(admin, "marking", pids).json()
+        after = admin.get(f"{API}/dashboard", timeout=TIMEOUT).json()["open_jangads"]
+        # Two entries share ONE jangad_no. If backend counts entries, delta==2 (regression).
+        # We record the observation without failing so main agent can decide.
+        delta = after - before
+        assert delta == 1, f"open_jangads must count unique jangad_no, delta={delta}"

@@ -56,7 +56,7 @@ export const EntryTable = ({ rows, onReceive, onDelete, showKapan = true, showSr
             <tr key={e.id} data-testid={`entry-row-${e.jangad_no}`} className="border-b border-black/5 transition-colors hover:bg-zinc-50">
               {showSr && <TD right cls="text-zinc-400">{i + 1}</TD>}
               <TD>
-                <Link to={`/jangad/${e.id}`} data-testid={`jangad-link-${e.jangad_no}`}
+                <Link to={`/jangad/${e.jangad_no}`} data-testid={`jangad-link-${e.jangad_no}`}
                   className="font-semibold tabular-nums underline decoration-[#B4975A] decoration-2 underline-offset-4 transition-colors hover:text-[#B4975A]">
                   {e.jangad_no}
                 </Link>
@@ -106,6 +106,44 @@ export const EntryTable = ({ rows, onReceive, onDelete, showKapan = true, showSr
   );
 };
 
+export const PacketStockTable = ({ rows }) => {
+  if (!rows.length) return null;
+  const total = rows.reduce((a, p) => a + Number(p.weight || 0), 0);
+  return (
+    <div className="mb-4 overflow-x-auto border border-[#B4975A]/40 bg-[#B4975A]/5" data-testid="packet-stock-table">
+      <table className="w-full min-w-[560px] border-collapse text-xs">
+        <thead>
+          <tr className="border-b border-[#B4975A]/40 text-zinc-600">
+            <th className="px-2.5 py-2 text-left font-semibold uppercase tracking-wider" colSpan={6}>
+              In stock — not yet issued ({rows.length} packets · {ct(total)} cts) · issue them from Packet Issue
+            </th>
+          </tr>
+          <tr className="border-b border-[#B4975A]/30 text-zinc-500">
+            <th className="px-2.5 py-1.5 text-left font-semibold uppercase tracking-wider">#</th>
+            <th className="px-2.5 py-1.5 text-left font-semibold uppercase tracking-wider">Packet No</th>
+            <th className="px-2.5 py-1.5 text-left font-semibold uppercase tracking-wider">Date</th>
+            <th className="px-2.5 py-1.5 text-right font-semibold uppercase tracking-wider">Pcs</th>
+            <th className="px-2.5 py-1.5 text-right font-semibold uppercase tracking-wider">Weight</th>
+            <th className="px-2.5 py-1.5 text-right font-semibold uppercase tracking-wider">Size</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p, i) => (
+            <tr key={p.id} data-testid={`stock-row-${p.packet_no}`} className="border-b border-[#B4975A]/20">
+              <td className="px-2.5 py-1.5 text-zinc-400">{i + 1}</td>
+              <td className="px-2.5 py-1.5 font-semibold tabular-nums">{p.packet_no}</td>
+              <td className="px-2.5 py-1.5 text-zinc-500">{p.date}</td>
+              <td className="px-2.5 py-1.5 text-right tabular-nums">{p.pcs}</td>
+              <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums">{ct(p.weight)}</td>
+              <td className="px-2.5 py-1.5 text-right tabular-nums text-zinc-500">{ct(p.size)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 export default function Packets({ mode }) {
   const { can } = useAuth();
   const [rows, setRows] = useState([]);
@@ -144,7 +182,7 @@ export default function Packets({ mode }) {
     <div data-testid={mode === "receive" ? "packet-receive-page" : "packet-issue-page"}>
       <PageHeader
         title={mode === "receive" ? "Packet Receive" : "Packet Issue"}
-        subtitle={mode === "receive" ? "Packets out with karigars — enter return pcs & weight" : "Issue a packet from stock, auto-generate the Jangad"}
+        subtitle={mode === "receive" ? "Packets out with karigars — enter return pcs & weight" : "Select packets from stock and issue them under one Jangad"}
       >
         {mode !== "receive" && can("can_create") && (
           <Button data-testid="new-issue-button" onClick={() => setIssueOpen(true)}
@@ -155,7 +193,7 @@ export default function Packets({ mode }) {
       </PageHeader>
 
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat testid="packets-total" label="Jangads" value={rows.length} />
+        <Stat testid="packets-total" label="Jangads" value={new Set(rows.map((r) => r.jangad_no)).size} />
         <Stat testid="packets-out" label="Out" value={rows.filter((r) => !r.returned).length} tone="accent" />
         <Stat testid="packets-out-weight" label="Out Weight" value={ct(outWeight)} unit="cts" tone="accent" />
         <Stat testid="packets-in-stock" label="Packets In Stock" value={stock.length} tone="good" />

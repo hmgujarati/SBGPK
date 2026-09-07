@@ -86,17 +86,24 @@ class PacketCreate(BaseModel):
 class PacketRow(BaseModel):
     pcs: int = 0
     weight: float = 0.0
-    hw: Optional[str] = ""
-    ds: Optional[str] = ""
-    expected_return_pcs: Optional[int] = 0
 
 
 class BulkProcessPackets(BaseModel):
     process: str
     date: str
+    rows: List[PacketRow] = Field(default_factory=list)
+
+
+class JangadCreate(BaseModel):
+    process: str
+    date: str
+    packet_ids: List[str] = Field(default_factory=list)
     karigar_id: Optional[str] = None
     karigar_name: str = ""
-    rows: List[PacketRow] = Field(default_factory=list)
+    hw: Optional[str] = ""
+    ds: Optional[str] = ""
+    expected_return_pcs: Optional[int] = 0
+    notes: Optional[str] = ""
 
 
 class EntryCreate(BaseModel):

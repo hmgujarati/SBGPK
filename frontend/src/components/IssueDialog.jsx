@@ -5,6 +5,7 @@ import { PROCESS_CONFIG, PROCESS_LABELS, PROCESS_ORDER } from "@/lib/processConf
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -16,9 +17,8 @@ const Field = ({ label, children }) => (
   </div>
 );
 
-export const IssueDialog = ({ open, onOpenChange, packets = [], fixedPacketId, onDone }) => {
+export const IssueDialog = ({ open, onOpenChange, packets = [], onDone }) => {
   const [form, setForm] = useState({
-    packet_id: fixedPacketId || "",
     process: "sarine",
     date: today(),
     karigar_id: "",
@@ -26,18 +26,14 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], fixedPacketId, o
     hw: "",
     ds: "Single",
     expected_return_pcs: "",
-    notes: "",
   });
+  const [picked, setPicked] = useState([]);
   const [karigars, setKarigars] = useState([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (fixedPacketId) setForm((f) => ({ ...f, packet_id: fixedPacketId }));
-  }, [fixedPacketId]);
-
-  useEffect(() => {
-    if (!open) setForm((f) => ({ ...f, packet_id: fixedPacketId || "" }));
-  }, [open, fixedPacketId]);
+    if (!open) setPicked([]);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -46,27 +42,33 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], fixedPacketId, o
       .catch(() => setKarigars([]));
   }, [form.process, open]);
 
-  const packet = useMemo(() => packets.find((p) => p.id === form.packet_id), [packets, form.packet_id]);
   const cfg = PROCESS_CONFIG[form.process] || { issue: [] };
+  const chosen = useMemo(() => packets.filter((p) => picked.includes(p.id)), [packets, picked]);
+  const totals = chosen.reduce(
+    (a, p) => ({ pcs: a.pcs + Number(p.pcs || 0), weight: a.weight + Number(p.weight || 0) }),
+    { pcs: 0, weight: 0 }
+  );
+
+  const toggle = (id) => setPicked((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const allPicked = packets.length > 0 && picked.length === packets.length;
 
   const submit = async () => {
-    if (!form.packet_id) return toast.error("Select a packet");
+    if (!picked.length) return toast.error("Select at least one packet");
     setBusy(true);
     try {
-      const { data } = await api.post("/entries", {
-        packet_id: form.packet_id,
+      const { data } = await api.post("/jangads", {
         process: form.process,
         date: form.date,
+        packet_ids: picked,
         karigar_id: form.karigar_id || null,
         karigar_name: form.karigar_name,
         hw: form.hw,
         ds: form.ds,
         expected_return_pcs: Number(form.expected_return_pcs || 0),
-        notes: form.notes,
       });
-      toast.success(`Issued · Jangad ${data.jangad_no}`);
+      toast.success(`Jangad ${data.jangad_no} · ${data.count} packets issued`);
       onOpenChange(false);
-      setForm((f) => ({ ...f, packet_id: fixedPacketId || "", hw: "", expected_return_pcs: "" }));
+      setPicked([]);
       onDone?.(data);
     } catch (e) {
       toast.error(apiError(e));
@@ -77,29 +79,14 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], fixedPacketId, o
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl rounded-none" data-testid="issue-dialog">
+      <DialogContent className="max-w-3xl rounded-none" data-testid="issue-dialog">
         <DialogHeader>
-          <DialogTitle className="font-heading uppercase tracking-wide">Issue Packet</DialogTitle>
+          <DialogTitle className="font-heading uppercase tracking-wide">
+            Issue Packets — one Jangad
+          </DialogTitle>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <div className="col-span-2">
-            <Label className="text-[11px] uppercase tracking-wider text-zinc-600">Packet</Label>
-            <Select value={form.packet_id} onValueChange={(v) => setForm({ ...form, packet_id: v })} disabled={Boolean(fixedPacketId)}>
-              <SelectTrigger data-testid="issue-packet-select" className={inp}>
-                <SelectValue placeholder="Select packet in stock" />
-              </SelectTrigger>
-              <SelectContent>
-                {packets.length === 0 && <SelectItem value="none" disabled>No packets in stock</SelectItem>}
-                {packets.map((p) => (
-                  <SelectItem key={p.id} value={p.id} data-testid={`issue-packet-opt-${p.packet_no}`}>
-                    {p.packet_no} · {p.pcs} pcs · {ct(p.weight)} ct
-                    {p.last_process ? ` · after ${PROCESS_LABELS[p.last_process]}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
           <Field label="Process">
             <Select value={form.process} onValueChange={(v) => setForm({ ...form, process: v, karigar_id: "", karigar_name: "" })}>
               <SelectTrigger data-testid="issue-process-select" className={inp}>
@@ -146,15 +133,6 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], fixedPacketId, o
                 onChange={(e) => setForm({ ...form, karigar_name: e.target.value })} className={inp} />
             </Field>
           )}
-          <Field label="Pcs (from packet)">
-            <Input data-testid="issue-pcs-display" value={packet?.pcs ?? ""} readOnly className={`${inp} bg-zinc-100`} />
-          </Field>
-          <Field label="Weight (from packet)">
-            <Input data-testid="issue-weight-display" value={packet ? ct(packet.weight) : ""} readOnly className={`${inp} bg-zinc-100`} />
-          </Field>
-          <Field label="Size">
-            <Input data-testid="issue-size-display" value={packet ? ct(packet.size) : ""} readOnly className={`${inp} bg-zinc-100`} />
-          </Field>
           {cfg.issue.map((f) =>
             f.type === "select" ? (
               <Field key={f.key} label={f.label}>
@@ -178,10 +156,58 @@ export const IssueDialog = ({ open, onOpenChange, packets = [], fixedPacketId, o
           )}
         </div>
 
+        <div className="max-h-[38vh] overflow-auto border border-black/10">
+          <table className="w-full border-collapse text-xs" data-testid="issue-packet-table">
+            <thead className="sticky top-0">
+              <tr className="bg-zinc-900 text-white">
+                <th className="px-2 py-2 text-left">
+                  <Checkbox data-testid="issue-select-all" checked={allPicked} className="rounded-none border-white/40"
+                    onCheckedChange={(c) => setPicked(c ? packets.map((p) => p.id) : [])} />
+                </th>
+                <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Kapan</th>
+                <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Packet</th>
+                <th className="px-2 py-2 text-right font-semibold uppercase tracking-wider">Pcs</th>
+                <th className="px-2 py-2 text-right font-semibold uppercase tracking-wider">Weight</th>
+                <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Last Process</th>
+              </tr>
+            </thead>
+            <tbody>
+              {packets.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-3 py-6 text-center text-zinc-500">
+                    No packets in stock. Create packets from a Kapan process register first.
+                  </td>
+                </tr>
+              )}
+              {packets.map((p) => (
+                <tr key={p.id} data-testid={`issue-packet-row-${p.packet_no}`}
+                  onClick={() => toggle(p.id)}
+                  className={`cursor-pointer border-b border-black/5 transition-colors ${picked.includes(p.id) ? "bg-[#B4975A]/10" : "hover:bg-zinc-50"}`}>
+                  <td className="px-2 py-1.5">
+                    <Checkbox data-testid={`issue-packet-check-${p.packet_no}`} checked={picked.includes(p.id)}
+                      onCheckedChange={() => toggle(p.id)} className="rounded-none" />
+                  </td>
+                  <td className="px-2 py-1.5 tabular-nums">{p.kapan_no}</td>
+                  <td className="px-2 py-1.5 font-semibold tabular-nums">{p.packet_no}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{p.pcs}</td>
+                  <td className="px-2 py-1.5 text-right font-semibold tabular-nums">{ct(p.weight)}</td>
+                  <td className="px-2 py-1.5 text-zinc-500">{PROCESS_LABELS[p.last_process] || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border border-[#B4975A]/40 bg-[#B4975A]/5 px-3 py-2 text-xs" data-testid="issue-selection-summary">
+          <span>Selected: <b className="tabular-nums">{picked.length}</b> packets</span>
+          <span>Total Pcs: <b className="tabular-nums">{totals.pcs}</b></span>
+          <span>Total Weight: <b className="tabular-nums">{ct(totals.weight)}</b> cts</span>
+        </div>
+
         <DialogFooter>
-          <Button data-testid="issue-submit-button" onClick={submit} disabled={busy || !form.packet_id}
+          <Button data-testid="issue-submit-button" onClick={submit} disabled={busy || !picked.length}
             className="h-10 rounded-none bg-zinc-900 text-xs font-semibold uppercase tracking-widest">
-            {busy ? "Issuing…" : "Issue & Create Jangad"}
+            {busy ? "Issuing…" : `Issue ${picked.length || ""} Packets & Create Jangad`}
           </Button>
         </DialogFooter>
       </DialogContent>

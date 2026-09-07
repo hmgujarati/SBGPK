@@ -47,7 +47,7 @@ function App() {
             <Route path="/receive" element={<Packets mode="receive" />} />
             <Route path="/karigars" element={<Karigars />} />
             <Route path="/staff" element={<Staff />} />
-            <Route path="/jangad/:id" element={<Jangad />} />
+            <Route path="/jangad/:jangadNo" element={<Jangad />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
