@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import JsBarcode from "jsbarcode";
+import { PROCESS_LABELS } from "@/lib/processConfig";
 
 /** One packet sticker, sized in inches from print settings. */
 export const PacketLabel = ({ packet, settings }) => {
@@ -29,11 +30,14 @@ export const PacketLabel = ({ packet, settings }) => {
       className="label-sticker relative flex flex-col justify-between overflow-hidden border border-black/20 bg-white"
       style={{ width: `${w}in`, height: `${h}in`, padding: `${h * 0.06}in ${w * 0.05}in` }}
     >
-      <div className="flex items-start justify-between leading-none">
-        <span className="font-bold tabular-nums" style={{ fontSize: `${h * 0.3}in` }}>
+      <div className="flex items-baseline justify-between gap-1 leading-none">
+        <span className="whitespace-nowrap font-bold tabular-nums" style={{ fontSize: `${h * 0.22}in` }}>
           {packet.seq}
         </span>
-        <span className="font-bold tabular-nums" style={{ fontSize: `${h * 0.3}in` }}>
+        <span className="whitespace-nowrap font-bold uppercase" style={{ fontSize: `${h * 0.22}in` }}>
+          {PROCESS_LABELS[packet.process] || packet.process || ""}
+        </span>
+        <span className="whitespace-nowrap font-bold tabular-nums" style={{ fontSize: `${h * 0.22}in` }}>
           {packet.kapan_no}
         </span>
       </div>
@@ -44,8 +48,11 @@ export const PacketLabel = ({ packet, settings }) => {
         ) : (
           <span className="tabular-nums" style={{ fontSize: `${h * 0.11}in` }}>{packet.packet_no}</span>
         )}
-        <span className="whitespace-nowrap tabular-nums leading-none" style={{ fontSize: `${h * 0.2}in` }}>
-          {packet.pcs} / {Number(packet.weight || 0).toFixed(2)}
+        <span className="whitespace-nowrap text-center leading-none">
+          <span className="block tabular-nums" style={{ fontSize: `${h * 0.2}in` }}>{packet.pcs}</span>
+          <span className="block border-t-2 border-black tabular-nums" style={{ fontSize: `${h * 0.2}in` }}>
+            {Number(packet.weight || 0).toFixed(2)}
+          </span>
         </span>
       </div>
     </div>
