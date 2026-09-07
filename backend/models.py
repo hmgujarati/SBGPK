@@ -143,6 +143,8 @@ class EntryUpdate(EntryReturn):
     date: Optional[str] = None
     karigar_id: Optional[str] = None
     karigar_name: Optional[str] = None
+    pcs: Optional[int] = None
+    weight: Optional[float] = None
     hw: Optional[str] = None
     ds: Optional[str] = None
     expected_return_pcs: Optional[int] = None

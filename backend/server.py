@@ -806,18 +806,99 @@ async def receive_entry(entry_id: str, payload: EntryReturn, user: dict = Depend
 
 @api.put("/entries/{entry_id}")
 async def update_entry(entry_id: str, payload: EntryUpdate, user: dict = Depends(get_current_user)):
+    """Correct an entry's issue and/or return figures. Keeps the packet in sync."""
     require(user, "can_edit")
     _id = oid(entry_id)
     entry = await db.entries.find_one({"_id": _id})
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
+
     data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
-    data.pop("kapan_id", None)
     entry.update(data)
+    if entry.get("process") != "laser":
+        entry["hw"], entry["expected_return_pcs"] = "", 0
+    if entry.get("process") != "polish":
+        entry["ds"] = ""
+
+    issued = r2(entry.get("weight"))
+    if issued <= 0:
+        raise HTTPException(status_code=400, detail="Issue weight must be greater than 0")
+
+    # A packet can never be issued for more than it actually weighs at that point.
+    packet = await db.packets.find_one({"_id": entry["packet_id"]})
+    prior = await db.entries.count_documents({
+        "packet_id": entry["packet_id"],
+        "created_at": {"$lt": entry.get("created_at")},
+    })
+    if prior == 0 and packet and issued > r2(packet.get("original_weight")) + 0.001:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Issue weight cannot exceed the packet's created weight {r2(packet.get('original_weight')):.2f} cts",
+        )
+    # Correcting the packet's very first issue also corrects the packet's created figures,
+    # otherwise the kapan would show a permanent unaccounted gap.
+    if prior == 0 and packet:
+        await db.packets.update_one(
+            {"_id": packet["_id"]},
+            {"$set": {"original_weight": issued, "original_pcs": int(entry.get("pcs") or 0)}},
+        )
+
+    if entry.get("returned"):
+        rw = r2(entry.get("return_weight"))
+        if rw <= 0:
+            raise HTTPException(status_code=400, detail="Return weight must be greater than 0")
+        if entry.get("process") != "laser" and int(entry.get("return_pcs") or 0) > int(entry.get("pcs") or 0):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Return pcs cannot exceed issued pcs ({int(entry.get('pcs') or 0)})",
+            )
+        accounted = rw + r2(entry.get("return_boil")) + r2(entry.get("rc")) + r2(entry.get("nail_rc"))
+        if entry.get("process") == "filling":
+            if rw < issued - 0.001:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Filling adds weight — return weight cannot be less than issued {issued:.2f} cts",
+                )
+        elif accounted > issued + 0.001:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Return weight + boil + RC ({accounted:.2f}) cannot exceed issued weight {issued:.2f} cts",
+            )
+
     compute_entry(entry)
+    entry["edited_by"] = user.get("name")
+    entry["edited_at"] = now_utc()
     entry.pop("_id", None)
     await db.entries.update_one({"_id": _id}, {"$set": entry})
     entry["_id"] = _id
+
+    # Only the packet's most recent entry defines its current weight.
+    newer = await db.entries.count_documents({
+        "packet_id": entry["packet_id"],
+        "created_at": {"$gt": entry.get("created_at")},
+    })
+    if not newer:
+        if entry.get("returned"):
+            pcs = int(entry.get("return_pcs") or 0)
+            wt = r2(entry.get("return_weight"))
+            last_process = entry.get("process")
+            status = "in_stock"
+        else:
+            pcs = int(entry.get("pcs") or 0)
+            wt = issued
+            last_process = entry.get("prev_process")
+            status = "issued"
+        await db.packets.update_one(
+            {"_id": entry["packet_id"]},
+            {"$set": {
+                "status": status,
+                "pcs": pcs,
+                "weight": wt,
+                "size": r2(wt / pcs) if pcs else 0.0,
+                "last_process": last_process,
+                "current_process": None if status == "in_stock" else entry.get("process"),
+            }},
+        )
     return serialize(entry)
 
 

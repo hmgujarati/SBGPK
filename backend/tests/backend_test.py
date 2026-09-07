@@ -763,3 +763,157 @@ class TestPacketLabels:
         r = staff.get(f"{API}/packets/labels?ids={pids[0]}", timeout=TIMEOUT)
         assert r.status_code == 200
         assert len(r.json()) == 1
+
+
+# ---------------------------------------------------------------- entry edit (iter 8)
+class TestEntryEdit:
+    """PUT /api/entries/{id} — admin correction of issue/return figures."""
+
+    @pytest.fixture(scope="class")
+    def kapan(self, admin):
+        k = new_kapan(admin, 400.0, 40)
+        yield k
+        admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+    @pytest.fixture(scope="class")
+    def restricted_user(self, admin):
+        """A can_create-only staff user to verify RBAC 403 for edit."""
+        email = f"test_noedit_{uuid.uuid4().hex[:6]}@polki.com"
+        r = admin.post(f"{API}/users", json={
+            "name": "NoEdit User", "email": email, "password": "pw12345",
+            "role": "staff",
+            "permissions": {"can_create": True, "can_edit": False, "can_delete": False,
+                            "can_manage_staff": False, "can_manage_karigar": False},
+        }, timeout=TIMEOUT)
+        assert r.status_code == 200, r.text
+        uid = r.json()["id"]
+        s = requests.Session()
+        rl = s.post(f"{API}/auth/login", json={"email": email, "password": "pw12345"}, timeout=TIMEOUT)
+        assert rl.status_code == 200, rl.text
+        s.headers.update({"Authorization": f"Bearer {rl.json()['token']}"})
+        yield s
+        admin.delete(f"{API}/users/{uid}", timeout=TIMEOUT)
+
+    def _received_laser(self, admin, kapan, pcs=10, weight=40.0,
+                        return_pcs=8, return_weight=30.0, boil=2.0, rc=3.0):
+        p = mk_packet(admin, kapan["id"], pcs, weight).json()
+        e = issue(admin, p["id"], "laser", hw="5x5", expected_return_pcs=pcs - 1).json()
+        r = receive(admin, e["id"], return_pcs=return_pcs, return_weight=return_weight,
+                    return_boil=boil, rc=rc)
+        assert r.status_code == 200, r.text
+        return p, r.json()
+
+    def test_edit_return_weight_recomputes_derived_and_syncs_packet(self, admin, kapan):
+        p, e = self._received_laser(admin, kapan)  # issued 40, return 30, boil 2, rc 3, loss 5
+        assert abs(e["loss"] - 5.0) < 0.02
+
+        r = admin.put(f"{API}/entries/{e['id']}",
+                      json={"return_weight": 34.0}, timeout=TIMEOUT)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert abs(d["return_weight"] - 34.0) < 0.02
+        # loss = 40 - (34 + 2 + 3) = 1.0
+        assert abs(d["loss"] - 1.0) < 0.02
+        assert abs(d["loss_pct"] - 2.5) < 0.05
+        assert abs(d["return_pct"] - 85.0) < 0.05
+        assert d.get("edited_by")
+        # packet current weight/pcs follows edited return
+        pk = next(x for x in report(admin, kapan["id"])["packets"] if x["id"] == p["id"])
+        assert abs(pk["weight"] - 34.0) < 0.02
+        assert pk["pcs"] == 8
+
+    def test_edit_issue_weight_keeps_kapan_balanced(self, admin, kapan):
+        p, e = self._received_laser(admin, kapan)  # issue 40 return 30 boil 2 rc 3
+        # change issue weight 40 -> 38, keep return 31 boil 2 rc 3 -> loss = 38 - 36 = 2
+        r = admin.put(f"{API}/entries/{e['id']}",
+                      json={"weight": 38.0, "return_weight": 31.0,
+                            "return_boil": 2.0, "rc": 3.0}, timeout=TIMEOUT)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert abs(d["weight"] - 38.0) < 0.02
+        assert abs(d["loss"] - 2.0) < 0.02
+        # kapan reconciliation must stay balanced (difference ~0 within tolerance)
+        rep = report(admin, kapan["id"])["report"]
+        assert rep.get("balanced") is True, rep
+
+    def test_edit_issue_weight_ceiling_first_entry(self, admin, kapan):
+        # first entry cannot be issued for more than packet's created weight
+        p = mk_packet(admin, kapan["id"], 5, 20.0).json()
+        e = issue(admin, p["id"], "sarine").json()
+        r = admin.put(f"{API}/entries/{e['id']}", json={"weight": 25.0}, timeout=TIMEOUT)
+        assert r.status_code == 400
+        assert "created weight" in r.json()["detail"].lower()
+
+    def test_edit_return_exceeds_issue_rejected(self, admin, kapan):
+        p, e = self._received_laser(admin, kapan, weight=38.0, return_weight=31.0)
+        r = admin.put(f"{API}/entries/{e['id']}",
+                      json={"return_weight": 40.0}, timeout=TIMEOUT)
+        assert r.status_code == 400
+        assert "cannot exceed" in r.json()["detail"].lower()
+
+    def test_edit_zero_issue_weight_rejected(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 3, 15.0).json()
+        e = issue(admin, p["id"], "sarine").json()
+        r = admin.put(f"{API}/entries/{e['id']}", json={"weight": 0}, timeout=TIMEOUT)
+        assert r.status_code == 400
+        assert "greater than 0" in r.json()["detail"].lower()
+
+    def test_edit_filling_return_less_than_issue_rejected(self, admin, kapan):
+        p = mk_packet(admin, kapan["id"], 4, 20.0).json()
+        e1 = issue(admin, p["id"], "filling").json()
+        # filling: return must be >= issue
+        r = receive(admin, e1["id"], return_pcs=4, return_weight=22.0)
+        assert r.status_code == 200, r.text
+        er = r.json()
+        assert abs(er.get("weight_gain", 0) - 2.0) < 0.02
+        # Edit return down to 18 (< issue 20) — reject
+        bad = admin.put(f"{API}/entries/{er['id']}",
+                        json={"return_weight": 18.0}, timeout=TIMEOUT)
+        assert bad.status_code == 400
+        assert "filling" in bad.json()["detail"].lower()
+        # Edit return higher (25) — accept, weight_gain=5
+        ok = admin.put(f"{API}/entries/{er['id']}",
+                       json={"return_weight": 25.0}, timeout=TIMEOUT)
+        assert ok.status_code == 200, ok.text
+        assert abs(ok.json()["weight_gain"] - 5.0) < 0.02
+
+    def test_edit_middle_entry_does_not_overwrite_packet_current(self, admin, kapan):
+        """Editing an older entry must not overwrite the packet's later state."""
+        p = mk_packet(admin, kapan["id"], 5, 25.0).json()
+        e1 = issue(admin, p["id"], "sarine").json()
+        r1 = receive(admin, e1["id"], return_pcs=5, return_weight=24.0)
+        assert r1.status_code == 200, r1.text
+        e2 = issue(admin, p["id"], "laser", hw="5x5", expected_return_pcs=4).json()
+        r2 = receive(admin, e2["id"], return_pcs=4, return_weight=20.0,
+                     return_boil=1.0, rc=1.0)
+        assert r2.status_code == 200, r2.text
+        # After the laser return, packet current weight should be 20
+        pk_before = next(x for x in report(admin, kapan["id"])["packets"] if x["id"] == p["id"])
+        assert abs(pk_before["weight"] - 20.0) < 0.02
+
+        # Edit the OLDER sarine return_weight — packet current must NOT change
+        upd = admin.put(f"{API}/entries/{r1.json()['id']}",
+                        json={"return_weight": 23.0}, timeout=TIMEOUT)
+        assert upd.status_code == 200, upd.text
+        pk_after = next(x for x in report(admin, kapan["id"])["packets"] if x["id"] == p["id"])
+        assert abs(pk_after["weight"] - 20.0) < 0.02, "editing older entry must not touch packet current wt"
+        assert pk_after["pcs"] == 4
+
+    def test_edit_rbac_403_for_no_edit_user(self, admin, kapan, restricted_user):
+        p, e = self._received_laser(admin, kapan)
+        r = restricted_user.put(f"{API}/entries/{e['id']}",
+                                json={"return_weight": 32.0}, timeout=TIMEOUT)
+        assert r.status_code == 403
+
+    def test_edit_process_field_isolation(self, admin, kapan):
+        """Editing a non-laser entry must not leak hw/expected_return_pcs."""
+        p = mk_packet(admin, kapan["id"], 4, 20.0).json()
+        e = issue(admin, p["id"], "sarine").json()
+        r = admin.put(f"{API}/entries/{e['id']}",
+                      json={"hw": "9x9", "expected_return_pcs": 3, "weight": 19.0},
+                      timeout=TIMEOUT)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert (d.get("hw") or "") == ""
+        assert int(d.get("expected_return_pcs") or 0) == 0
+        assert (d.get("ds") or "") == ""

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, Trash, Printer } from "@phosphor-icons/react";
+import { Plus, Trash, Printer, PencilSimple } from "@phosphor-icons/react";
 import { api, apiError, ct } from "@/lib/api";
 import { PROCESS_LABELS } from "@/lib/processConfig";
 import { useAuth } from "@/context/AuthContext";
@@ -9,6 +9,7 @@ import { PageHeader, Empty, Stat } from "@/components/Bits";
 import { Button } from "@/components/ui/button";
 import IssueDialog from "@/components/IssueDialog";
 import ReceiveDialog from "@/components/ReceiveDialog";
+import EditEntryDialog from "@/components/EditEntryDialog";
 
 const TH = ({ children, right }) => (
   <th className={`border-r border-white/10 px-2.5 py-2.5 font-semibold uppercase tracking-wider ${right ? "text-right" : "text-left"}`}>
@@ -19,7 +20,7 @@ const TD = ({ children, right, cls = "" }) => (
   <td className={`border-r border-black/5 px-2.5 py-2 ${right ? "text-right tabular-nums" : ""} ${cls}`}>{children}</td>
 );
 
-export const EntryTable = ({ rows, onReceive, onDelete, showKapan = true, showSr = false }) => {
+export const EntryTable = ({ rows, onReceive, onDelete, onEdit, showKapan = true, showSr = false }) => {
   const { can } = useAuth();
   if (!rows.length) return <Empty testid="entries-empty" text="No packets found." />;
   return (
@@ -89,6 +90,13 @@ export const EntryTable = ({ rows, onReceive, onDelete, showKapan = true, showSr
                   <button data-testid={`receive-btn-${e.jangad_no}`} onClick={() => onReceive(e)}
                     className="mr-2 border border-zinc-900 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors hover:bg-zinc-900 hover:text-white">
                     Receive
+                  </button>
+                )}
+                {can("can_edit") && onEdit && (
+                  <button data-testid={`entry-edit-${e.jangad_no}-${e.packet_no}`} onClick={() => onEdit(e)}
+                    title="Edit issue / return weight"
+                    className="mr-2 text-zinc-400 transition-colors hover:text-zinc-900">
+                    <PencilSimple size={14} />
                   </button>
                 )}
                 {can("can_delete") && onDelete && (
@@ -164,6 +172,7 @@ export default function Packets({ mode }) {
   const [stock, setStock] = useState([]);
   const [issueOpen, setIssueOpen] = useState(false);
   const [receiving, setReceiving] = useState(null);
+  const [editing, setEditing] = useState(null);
 
   const load = () => {
     api.get("/entries", { params: mode === "receive" ? { status: "open" } : {} })
@@ -213,7 +222,7 @@ export default function Packets({ mode }) {
         <Stat testid="packets-in-stock" label="Packets In Stock" value={stock.length} tone="good" />
       </div>
 
-      <EntryTable rows={rows} onReceive={setReceiving} onDelete={remove} />
+      <EntryTable rows={rows} onReceive={setReceiving} onDelete={remove} onEdit={setEditing} />
 
       <IssueDialog
         open={issueOpen}
@@ -222,6 +231,7 @@ export default function Packets({ mode }) {
         onDone={load}
       />
       <ReceiveDialog entry={receiving} onClose={() => setReceiving(null)} onDone={load} />
+      <EditEntryDialog entry={editing} onClose={() => setEditing(null)} onDone={load} />
     </div>
   );
 }

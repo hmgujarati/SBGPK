@@ -62,6 +62,12 @@ Live kapan report: Kapan Weight = RC | Nail RC | Laser Loss | Polish Loss | Shap
 - `@page` size is driven by the saved settings on both the jangad slip and the label sheet, so each sticker prints one per page at the exact physical size
 - `GET /api/packets/labels?ids=` returns the label payload (seq, packet_no, kapan_no, pcs, weight)
 
+## Iteration 8 — admin can edit issue & return figures (2026-06)
+- Pencil icon on every jangad row (Kapan process registers + Packet Issue/Receive), gated on `can_edit`, opens an Edit dialog: ISSUE section (date, karigar, pcs, weight, plus H/W + Exp Ret Pcs for Laser) and, for received rows, a RETURN section with live Loss / Loss % / Return % (or Weight Gain for Filling)
+- `PUT /api/entries/{id}` recomputes derived figures, stamps `edited_by`/`edited_at`, re-syncs the packet's current weight/pcs **only when the edited row is the packet's latest entry**, and re-syncs the packet's created weight when its first issue is corrected so the kapan never shows phantom unaccounted weight
+- Guards: issue weight > 0, issue weight ≤ packet's created weight (first entry), return + boil + RC ≤ issued (non-filling), return ≥ issued (filling), return pcs ≤ issued pcs (except Laser, which splits), 2-decimal caps
+- Test suite grew to **54 passing** backend tests
+
 ## Backlog
 - P1: barcode on each packet — scan to issue (print jangad) and scan to receive (opens the return popup)
 - P1: validate issued weight against kapan remaining weight; prevent duplicate open issue per stage

@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { PageHeader, Stat } from "@/components/Bits";
 import { Button } from "@/components/ui/button";
 import ReceiveDialog from "@/components/ReceiveDialog";
+import EditEntryDialog from "@/components/EditEntryDialog";
 import BulkPacketDialog from "@/components/BulkPacketDialog";
 import { EntryTable, PacketStockTable } from "@/pages/Packets";
 
@@ -18,6 +19,7 @@ export default function KapanDetail() {
   const [tab, setTab] = useState("sarine");
   const [bulkOpen, setBulkOpen] = useState(false);
   const [receiving, setReceiving] = useState(null);
+  const [editing, setEditing] = useState(null);
 
   const load = useCallback(() => {
     api.get(`/kapans/${id}`).then((r) => setK(r.data)).catch((e) => toast.error(apiError(e)));
@@ -123,12 +125,13 @@ export default function KapanDetail() {
           )}
         </div>
         <PacketStockTable rows={(k.packets || []).filter((x) => x.process === tab && x.status !== "issued")} />
-        <EntryTable rows={rows} onReceive={setReceiving} onDelete={removeEntry} showKapan={false} showSr />
+        <EntryTable rows={rows} onReceive={setReceiving} onDelete={removeEntry} onEdit={setEditing} showKapan={false} showSr />
       </div>
 
       <BulkPacketDialog open={bulkOpen} onOpenChange={setBulkOpen} kapanId={id} process={tab}
         remaining={p.unpacketed_weight} onDone={load} />
       <ReceiveDialog entry={receiving} onClose={() => setReceiving(null)} onDone={load} />
+      <EditEntryDialog entry={editing} onClose={() => setEditing(null)} onDone={load} />
     </div>
   );
 }
