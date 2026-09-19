@@ -1,0 +1,37 @@
+{
+  "summary": "SP Kapan module — end-to-end verified. Added 12 new backend tests in /app/backend/tests/test_sp_kapan.py covering: SP-vs-normal register isolation, SP stone creation (S-prefixed codes, pcs=1, un-packeted drops, over-weight rejection, SP-only endpoint), issue rules (SP+normal mix rejected, Nats & Filling rejected for SP, bad sub-packet split rejected, valid sub-packet split accepted with sub_packets carried on entry, receive keeps pcs=1 even when payload return_pcs=5, stone chain accumulates loss across marking->laser), karigar-not-registered rejection, and sp-report shape (kapan_weight, stone_count, loss/yield_pct per stone, balanced flag). Full pytest suite is 81/81 green (69 existing regression + 12 new SP). Frontend (Playwright): logged in as admin, verified nav-sp-kapans opens sp-kapans-page; created new SP kapan UISP6131 (weight 120.50) — it appears only in the SP register and is absent from the normal Kapan register; SP detail page loads with data-testid sp-kapan-detail-page and Add-Stones dialog persisted 2 stones which rendered as chain cards; existing seed SP436.57 with 2 stones still present. Packet Issue: opened issue-dialog, switched issue-kind-select to sp, opened issue-process-select and confirmed nats & filling options are absent while marking, sarine, laser, shape, ghat, polish, table_polish are all present; SP mode auto-loads Marking stock (\"Marking stock — 4 packet(s) available\") from the seed SP kapans; a bad scan surfaces the expected toast. Existing 69 backend regression tests remain green — nothing regressed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "IssueDialog / SP stones dialog", "issues": ["Radix Dialog console warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent} — accessibility only, non-blocking."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sp_kapan.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/sp_results.xml"
+  ],
+  "action_items": [
+    "(Optional a11y) Add a DialogDescription (or aria-describedby) to sp-kapan-dialog, sp-stones-dialog and issue-dialog to silence Radix warnings.",
+    "(Optional) Delete leftover Playwright-created SP kapan UISP6131 (has 2 stones with no processing) if a clean seed is preferred."
+  ],
+  "critical_code_review_comments": [
+    "create_jangad correctly enforces SP↔normal isolation and SP_PROCESSES membership BEFORE karigar check — order is fine.",
+    "receive_entry hard-codes ret_pcs=1 for mode='sp' so stones can never split into multiple pcs, matching the spec.",
+    "sub_packets validation uses tolerance 0.011 which matches the frontend splitBad threshold — good symmetry.",
+    "sp-report.difference = original - (current + loss + rc + nail_rc) is a nice per-stone identity, complementing the kapan-level reconciliation.",
+    "next_packet_code('S') and next_packet_code() share the SAME global counter — so an S25165 stone and a 25166 normal packet can co-exist without clashes; this matches the requested global numbering.",
+    "server.py is now 1426 lines — SP endpoints packed in without splitting. Consider extracting sp_kapan / jangads / entries into domain routers for maintainability (still non-blocking)."
+  ],
+  "updated_files": ["/app/backend/tests/test_sp_kapan.py", "/app/test_reports/pytest/sp_results.xml"],
+  "success_rate": {"backend": "100% (81/81)", "frontend": "SP register + detail + Issue-dialog SP mode all verified via Playwright"},
+  "test_credentials": "admin@polki.com/admin123, staff@polki.com/staff123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Backend tests create/cleanup TEST_SP kapans and TEST_ROUGH kapans in their own fixtures. Playwright created 1 SP kapan UISP6131 with 2 stones (50.00 + 30.00) that was NOT cleaned up — main agent can delete via /sp-kapans page or leave it for later manual cleanup. Pre-existing seed kapan SP436.57 with 2 stones and karigar SP_MARK_K were left untouched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "SP module fully covered. Key testids on SP flow: nav-sp-kapans, sp-kapans-page, add-sp-kapan-button, sp-kapan-dialog, sp-kapan-{date,type,pcs,weight,no}-input, sp-kapan-save-button, sp-kapan-link-{kapan_no}, sp-kapan-detail-page, add-sp-stones-button, sp-stones-dialog, sp-stone-weight-{i}, sp-stones-save, sp-stone-{packet_no} (chain card), sp-step-{jangad_no}-{i}, sp-receive-{jangad_no}. Issue: issue-kind-select + issue-kind-sp/normal, issue-process-select + issue-process-opt-{proc}, issue-split-{packet_no}-{i}, issue-split-add-{packet_no}. Packet Issue lives at /issue (Packet Issue nav), NOT /packets. Backend rules: create_jangad enforces SP isolation, SP_PROCESSES membership, and sub_packets sum matching stone weight (tolerance 0.011); receive_entry hard-codes pcs=1 for mode=sp.",
+  "rca of the issue": "Not a bug hunt this iteration — this was a feature verification for the newly built SP Kapan module. Everything specified in the review request (nav, register isolation, S-prefixed codes with pcs=1, un-packeted-drop, over-weight rejection, chain rendering with rough/current/loss/yield, SP-only process list of 7 excluding Nats & Filling, SP-only stock filter, sub-packet split validation on both UI (splitBad → disabled Issue button) and API (400 with clear message), mix-rejection, Nats/Filling rejection on API, karigar rule, receive maths (loss = issue - boil, pcs stays 1, chain step appears), re-issue for another process with cumulative loss, existing kapan/packet regression) is working. 12 new backend tests exercise every rule and pass alongside all 69 pre-existing tests."
+}
