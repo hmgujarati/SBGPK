@@ -25,6 +25,7 @@ from starlette.middleware.cors import CORSMiddleware
 from models import (
     PROCESSES,
     PROCESS_LABELS,
+    SP_PROCESSES,
     EntryCreate,
     EntryReturn,
     EntryUpdate,
@@ -33,6 +34,7 @@ from models import (
     LoginRequest,
     BulkProcessPackets,
     JangadCreate,
+    SPStonesCreate,
     PacketCreate,
     PrintSettings,
     Permissions,
@@ -50,8 +52,9 @@ LOSS_PROCESSES = {"laser", "shape", "ghat", "polish", "table_polish", "nats", "f
 MAX_PACKET_CODE = 99999
 
 
-async def next_packet_code() -> str:
+async def next_packet_code(prefix: str = "") -> str:
     """Global 5-digit packet identifier (00001 … 99999), issued in order.
+    SP-kapan stones use the same counter with an "S" prefix so codes never clash.
     Codes are never reused while a packet still holds them; once the range is
     exhausted the numbering wraps and reclaims the lowest code that is free
     (freed when old kapans / packets are deleted)."""
@@ -59,12 +62,12 @@ async def next_packet_code() -> str:
         {"_id": "packet_code"}, {"$inc": {"seq": 1}}, upsert=True, return_document=True
     )
     n = int(doc["seq"])
-    if 1 <= n <= MAX_PACKET_CODE and not await db.packets.count_documents({"code": f"{n:05d}"}, limit=1):
-        return f"{n:05d}"
+    if 1 <= n <= MAX_PACKET_CODE and not await db.packets.count_documents({"code": f"{prefix}{n:05d}"}, limit=1):
+        return f"{prefix}{n:05d}"
 
     used = {p["code"] for p in await db.packets.find({}, {"code": 1}).to_list(200000) if p.get("code")}
     for i in range(1, MAX_PACKET_CODE + 1):
-        code = f"{i:05d}"
+        code = f"{prefix}{i:05d}"
         if code not in used:
             await db.counters.update_one({"_id": "packet_code"}, {"$set": {"seq": i}}, upsert=True)
             return code
@@ -459,12 +462,14 @@ def kapan_query(q: Optional[str]) -> dict:
 @api.get("/kapans")
 async def list_kapans(
     q: Optional[str] = None,
+    mode: str = "normal",
     page: int = 1,
     limit: int = 100,
     user: dict = Depends(get_current_user),
 ):
     """One page of kapans with their reports, plus true totals across every match."""
     query = kapan_query(q)
+    query["mode"] = "sp" if mode == "sp" else {"$ne": "sp"}
     limit = max(1, min(limit, 500))
     skip = max(0, (page - 1) * limit)
     total = await db.kapans.count_documents(query)
@@ -494,6 +499,8 @@ async def create_kapan(payload: KapanCreate, user: dict = Depends(get_current_us
     if await db.kapans.find_one({"kapan_no": payload.kapan_no}):
         raise HTTPException(status_code=400, detail="Kapan No already exists")
     doc = payload.model_dump()
+    doc["mode"] = "sp" if doc.get("mode") == "sp" else "normal"
+
     doc["weight"] = r2(doc["weight"])
     doc["size"] = r2(doc["weight"] / doc["pcs"]) if doc["pcs"] else 0.0
     doc["created_at"] = now_utc()
@@ -551,6 +558,7 @@ async def delete_kapan(kapan_id: str, user: dict = Depends(get_current_user)):
 async def list_packets(
     status: Optional[str] = None,
     process: Optional[str] = None,
+    mode: Optional[str] = None,
     q: Optional[str] = None,
     page: int = 1,
     limit: int = 100,
@@ -561,6 +569,10 @@ async def list_packets(
         query["status"] = status
     if process:
         query["process"] = process
+    if mode == "sp":
+        query["mode"] = "sp"
+    elif mode == "normal":
+        query["mode"] = {"$ne": "sp"}
     if q:
         rx = {"$regex": re.escape(q), "$options": "i"}
         query["$or"] = [{"code": rx}, {"packet_no": rx}]
@@ -682,6 +694,115 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
     return {"created": created, "count": len(created), "total_weight": total}
 
 
+@api.post("/kapans/{kapan_id}/sp-stones")
+async def create_sp_stones(kapan_id: str, payload: SPStonesCreate, user: dict = Depends(get_current_user)):
+    """Add single-packet stones to an SP kapan. Each stone is one packet with its own chain."""
+    require(user, "can_create")
+    _kid = oid(kapan_id)
+    kapan = await db.kapans.find_one({"_id": _kid})
+    if not kapan:
+        raise HTTPException(status_code=404, detail="Kapan not found")
+    if kapan.get("mode") != "sp":
+        raise HTTPException(status_code=400, detail="This is not an SP kapan")
+    rows = [r for r in payload.rows if r.weight and r.weight > 0]
+    if not rows:
+        raise HTTPException(status_code=400, detail="Add at least one stone with a weight")
+
+    existing = await db.packets.find({"kapan_id": _kid}).to_list(None)
+    remaining = r2(r2(kapan.get("weight")) - r2(sum(r2(p.get("original_weight")) for p in existing)))
+    total = r2(sum(r2(r.weight) for r in rows))
+    if total > remaining + 0.001:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Total {total:.2f} cts exceeds the {remaining:.2f} cts remaining in this kapan",
+        )
+
+    seq = max([int(p.get("seq") or 0) for p in existing], default=0)
+    created = []
+    for row in rows:
+        seq += 1
+        weight = r2(row.weight)
+        stone = {
+            "kapan_id": _kid,
+            "mode": "sp",
+            "seq": seq,
+            "code": await next_packet_code("S"),
+            "packet_no": f"{kapan['kapan_no']}-{seq}",
+            "process": None,
+            "date": payload.date,
+            "pcs": 1,
+            "weight": weight,
+            "original_pcs": 1,
+            "original_weight": weight,
+            "size": weight,
+            "status": "in_stock",
+            "hw": "", "ds": "", "tops": 0, "expected_return_pcs": 0,
+            "last_process": None,
+            "current_process": None,
+            "notes": row.notes or "",
+            "created_at": now_utc(),
+            "created_by": user.get("name"),
+        }
+        res = await db.packets.insert_one(stone)
+        stone["_id"] = res.inserted_id
+        created.append(serialize(stone))
+    return {"created": created, "count": len(created), "total_weight": total}
+
+
+@api.get("/kapans/{kapan_id}/sp-report")
+async def sp_kapan_report(kapan_id: str, user: dict = Depends(get_current_user)):
+    """Per-stone chain: every process step it went through, with loss and running weight."""
+    _kid = oid(kapan_id)
+    kapan = await db.kapans.find_one({"_id": _kid})
+    if not kapan:
+        raise HTTPException(status_code=404, detail="Kapan not found")
+    stones = await db.packets.find({"kapan_id": _kid}).sort("seq", 1).to_list(None)
+    entries = await db.entries.find({"kapan_id": _kid}).sort("created_at", 1).to_list(None)
+    by_stone = {}
+    for e in entries:
+        by_stone.setdefault(e.get("packet_id"), []).append(e)
+
+    out = []
+    for s in stones:
+        steps = [serialize(e) for e in by_stone.get(s["_id"], [])]
+        loss = r2(sum(r2(e.get("loss")) for e in by_stone.get(s["_id"], []) if e.get("returned")))
+        rc = r2(sum(r2(e.get("rc")) for e in by_stone.get(s["_id"], []) if e.get("returned")))
+        nail_rc = r2(sum(r2(e.get("nail_rc")) for e in by_stone.get(s["_id"], []) if e.get("returned")))
+        original = r2(s.get("original_weight"))
+        current = r2(s.get("weight"))
+        item = serialize(s)
+        item.update({
+            "steps": steps,
+            "step_count": len(steps),
+            "total_loss": loss,
+            "total_rc": rc,
+            "total_nail_rc": nail_rc,
+            "loss_pct": r2((loss / original * 100) if original else 0),
+            "yield_pct": r2((current / original * 100) if original else 0),
+            "difference": r2(original - (current + loss + rc + nail_rc)),
+        })
+        item["balanced"] = abs(item["difference"]) <= 0.02
+        out.append(item)
+
+    stone_weight = r2(sum(r2(s.get("weight")) for s in stones))
+    packeted = r2(sum(r2(s.get("original_weight")) for s in stones))
+    return {
+        "kapan": serialize(kapan),
+        "stones": out,
+        "summary": {
+            "kapan_weight": r2(kapan.get("weight")),
+            "stone_count": len(stones),
+            "stone_weight": stone_weight,
+            "unpacketed_weight": r2(r2(kapan.get("weight")) - packeted),
+            "total_loss": r2(sum(s["total_loss"] for s in out)),
+            "total_rc": r2(sum(s["total_rc"] for s in out)),
+            "total_nail_rc": r2(sum(s["total_nail_rc"] for s in out)),
+            "in_process_weight": r2(sum(r2(s.get("weight")) for s in stones if s.get("status") == "issued")),
+            "in_process_count": sum(1 for s in stones if s.get("status") == "issued"),
+        },
+    }
+
+
 @api.post("/jangads")
 async def create_jangad(payload: JangadCreate, user: dict = Depends(get_current_user)):
     """Issue several packets to one karigar under a single jangad number."""
@@ -698,13 +819,25 @@ async def create_jangad(payload: JangadCreate, user: dict = Depends(get_current_
     busy = [p["packet_no"] for p in packets if p.get("status") == "issued"]
     if busy:
         raise HTTPException(status_code=400, detail=f"Already issued and not received: {', '.join(busy)}")
-    wrong = [p["packet_no"] for p in packets if p.get("process") and p.get("process") != payload.process]
-    if wrong:
-        raise HTTPException(
-            status_code=400,
-            detail=f"These packets are not in the {PROCESS_LABELS.get(payload.process, payload.process)} "
-                   f"list: {', '.join(wrong)}",
-        )
+
+    sp = [p for p in packets if p.get("mode") == "sp"]
+    if sp and len(sp) != len(packets):
+        raise HTTPException(status_code=400, detail="SP kapan stones cannot be issued together with normal packets")
+    is_sp = bool(sp)
+    if is_sp:
+        if payload.process not in SP_PROCESSES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{PROCESS_LABELS.get(payload.process, payload.process)} is not part of the SP kapan flow",
+            )
+    else:
+        wrong = [p["packet_no"] for p in packets if p.get("process") and p.get("process") != payload.process]
+        if wrong:
+            raise HTTPException(
+                status_code=400,
+                detail=f"These packets are not in the {PROCESS_LABELS.get(payload.process, payload.process)} "
+                       f"list: {', '.join(wrong)}",
+            )
     if payload.karigar_id:
         karigar = await db.karigars.find_one({"_id": oid(payload.karigar_id)})
         if not karigar:
@@ -717,12 +850,31 @@ async def create_jangad(payload: JangadCreate, user: dict = Depends(get_current_
             )
 
     jangad_no = await next_jangad_no()
+    subs_by_packet = {}
+    for row in payload.sub_packets:
+        subs_by_packet.setdefault(row.packet_id, []).append(row)
     entries = []
     for packet in packets:
+        rows = subs_by_packet.get(str(packet["_id"]), [])
+        stone_weight = r2(packet.get("weight"))
+        if rows:
+            split = r2(sum(r2(x.weight) for x in rows))
+            if abs(split - stone_weight) > 0.011:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{packet['packet_no']}: sub-packets total {split:.2f} cts but the stone is "
+                           f"{stone_weight:.2f} cts",
+                )
+        sub_packets = [
+            {"no": f"{packet.get('seq')}.{i}", "weight": r2(x.weight), "pcs": int(x.pcs or 1)}
+            for i, x in enumerate(rows, start=1)
+        ]
         entry = {
             "packet_id": packet["_id"],
             "kapan_id": packet["kapan_id"],
             "packet_no": packet.get("packet_no"),
+            "mode": packet.get("mode") or "normal",
+            "sub_packets": sub_packets,
             "process": payload.process,
             "date": payload.date,
             "karigar_id": payload.karigar_id,
@@ -1023,13 +1175,14 @@ async def receive_entry(entry_id: str, payload: EntryReturn, user: dict = Depend
     entry["_id"] = _id
 
     net = r2(entry.get("net_weight"))
+    ret_pcs = 1 if entry.get("mode") == "sp" else int(payload.return_pcs or 0)
     await db.packets.update_one(
         {"_id": entry["packet_id"]},
         {"$set": {
             "status": "in_stock",
             "weight": net,
-            "pcs": int(payload.return_pcs or 0),
-            "size": r2(net / payload.return_pcs) if payload.return_pcs else 0.0,
+            "pcs": ret_pcs,
+            "size": r2(net / ret_pcs) if ret_pcs else 0.0,
             "last_process": entry.get("process"),
             "current_process": None,
         }},

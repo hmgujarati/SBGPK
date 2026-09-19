@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   Diamond,
+  DiamondsFour,
   Gauge,
   Package,
   ArrowsLeftRight,
@@ -18,6 +19,7 @@ import { Button } from "@/components/ui/button";
 const NAV = [
   { to: "/", label: "Dashboard", icon: Gauge, testid: "nav-dashboard" },
   { to: "/kapans", label: "Kapan", icon: Diamond, testid: "nav-kapans" },
+  { to: "/sp-kapans", label: "SP Kapan", icon: DiamondsFour, testid: "nav-sp-kapans" },
   { to: "/issue", label: "Packet Issue", icon: ArrowsLeftRight, testid: "nav-issue" },
   { to: "/receive", label: "Packet Receive", icon: Package, testid: "nav-receive" },
   { to: "/karigars", label: "Karigar", icon: Users, testid: "nav-karigars" },

@@ -29,6 +29,17 @@ PROCESS_LABELS = {
 }
 
 
+SP_PROCESSES = [
+    "marking",
+    "sarine",
+    "laser",
+    "shape",
+    "ghat",
+    "polish",
+    "table_polish",
+]
+
+
 class Permissions(BaseModel):
     can_create: bool = True
     can_edit: bool = False
@@ -72,7 +83,24 @@ class KapanCreate(BaseModel):
     type: str = ""
     pcs: int = 0
     weight: float = 0.0
+    mode: str = "normal"
     notes: Optional[str] = ""
+
+
+class SPStoneRow(BaseModel):
+    weight: float = 0.0
+    notes: Optional[str] = ""
+
+
+class SPStonesCreate(BaseModel):
+    date: str
+    rows: List[SPStoneRow] = Field(default_factory=list)
+
+
+class SubPacketRow(BaseModel):
+    packet_id: str
+    weight: float = 0.0
+    pcs: int = 1
 
 
 class PacketCreate(BaseModel):
@@ -118,6 +146,7 @@ class JangadCreate(BaseModel):
     ds: Optional[str] = ""
     tops: Optional[int] = 0
     expected_return_pcs: Optional[int] = 0
+    sub_packets: List[SubPacketRow] = Field(default_factory=list)
     notes: Optional[str] = ""
 
 

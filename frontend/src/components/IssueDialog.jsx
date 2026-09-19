@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Trash, Barcode } from "@phosphor-icons/react";
-import { api, apiError, ct, today } from "@/lib/api";
-import { PROCESS_LABELS, PROCESS_ORDER } from "@/lib/processConfig";
+import { api, apiError, ct, dec2, today } from "@/lib/api";
+import { PROCESS_LABELS, PROCESS_ORDER, SP_PROCESS_ORDER } from "@/lib/processConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,8 +23,11 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
   const [scan, setScan] = useState("");
   const [karigars, setKarigars] = useState([]);
   const [stock, setStock] = useState({ items: [], total: 0 });
+  const [kind, setKind] = useState("normal");
+  const [splits, setSplits] = useState({});
   const [busy, setBusy] = useState(false);
   const scanRef = useRef(null);
+  const isSP = kind === "sp";
 
   useEffect(() => {
     if (!open) {
@@ -40,10 +43,28 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
     api.get("/karigars", { params: { process: form.process } })
       .then((r) => setKarigars(r.data))
       .catch(() => setKarigars([]));
-    api.get("/packets", { params: { status: "in_stock", process: form.process, limit: 200 } })
+    api.get("/packets", {
+      params: {
+        status: "in_stock",
+        mode: isSP ? "sp" : "normal",
+        process: isSP ? undefined : form.process,
+        limit: 200,
+      },
+    })
       .then((r) => setStock({ items: r.data.items, total: r.data.total }))
       .catch(() => setStock({ items: [], total: 0 }));
-  }, [form.process, open]);
+  }, [form.process, open, isSP]);
+
+  useEffect(() => {
+    setCart([]);
+    setSplits({});
+    setForm((f) => ({
+      ...f,
+      process: kind === "sp" ? "marking" : "sarine",
+      karigar_id: "",
+      karigar_name: "",
+    }));
+  }, [kind]);
 
   // Changing the process empties the cart — a jangad only ever holds one process.
   const setProcess = (v) => {
@@ -64,10 +85,24 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
   const add = (p) => {
     if (cart.some((c) => c.id === p.id)) return toast.error(`${p.packet_no} is already in the list`);
     if (p.status === "issued") return toast.error(`${p.packet_no} is already out with a karigar`);
-    if (p.process !== form.process)
+    const pIsSP = p.mode === "sp";
+    if (pIsSP !== isSP)
+      return toast.error(
+        pIsSP
+          ? `${p.packet_no} is an SP kapan stone — switch to SP mode to issue it`
+          : `${p.packet_no} is a normal packet — switch to Normal mode to issue it`
+      );
+    if (!isSP && p.process !== form.process)
       return toast.error(`${p.packet_no} is in the ${PROCESS_LABELS[p.process]} list, not ${PROCESS_LABELS[form.process]}`);
     setCart((c) => [...c, p]);
+    if (pIsSP) setSplits((s) => ({ ...s, [p.id]: [Number(p.weight || 0).toFixed(2)] }));
   };
+
+  const setSplit = (pid, i, v) =>
+    setSplits((s) => ({ ...s, [pid]: (s[pid] || []).map((x, y) => (y === i ? v : x)) }));
+  const addSplit = (pid) => setSplits((s) => ({ ...s, [pid]: [...(s[pid] || []), ""] }));
+  const splitTotal = (pid) => (splits[pid] || []).reduce((a, x) => a + Number(x || 0), 0);
+  const splitBad = isSP && cart.some((p) => Math.abs(splitTotal(p.id) - Number(p.weight || 0)) > 0.011);
 
   const scanAdd = async (e) => {
     e.preventDefault();
@@ -94,6 +129,13 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
         packet_ids: cart.map((p) => p.id),
         karigar_id: form.karigar_id || null,
         karigar_name: form.karigar_name,
+        sub_packets: isSP
+          ? cart.flatMap((p) =>
+              (splits[p.id] || [])
+                .filter((w) => Number(w || 0) > 0)
+                .map((w) => ({ packet_id: p.id, weight: Number(w), pcs: 1 }))
+            )
+          : [],
       });
       toast.success(`Jangad ${data.jangad_no} · ${data.count} packets issued`);
       onOpenChange(false);
@@ -116,13 +158,24 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Field label="Kapan Type">
+            <Select value={kind} onValueChange={setKind}>
+              <SelectTrigger data-testid="issue-kind-select" className={inp}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="normal" data-testid="issue-kind-normal">Normal Kapan</SelectItem>
+                <SelectItem value="sp" data-testid="issue-kind-sp">SP Kapan (single packet)</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
           <Field label="Process">
             <Select value={form.process} onValueChange={setProcess}>
               <SelectTrigger data-testid="issue-process-select" className={inp}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PROCESS_ORDER.map((p) => (
+                {(isSP ? SP_PROCESS_ORDER : PROCESS_ORDER).map((p) => (
                   <SelectItem key={p} value={p} data-testid={`issue-process-opt-${p}`}>
                     {PROCESS_LABELS[p]}
                   </SelectItem>
@@ -196,6 +249,7 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
                 <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Packet</th>
                 <th className="px-2 py-2 text-right font-semibold uppercase tracking-wider">Pcs</th>
                 <th className="px-2 py-2 text-right font-semibold uppercase tracking-wider">Weight</th>
+                <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Sub-packets</th>
                 <th className="px-2 py-2" />
               </tr>
             </thead>
@@ -215,6 +269,32 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
                   <td className="px-2 py-1.5 font-semibold tabular-nums">{p.packet_no}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{p.pcs}</td>
                   <td className="px-2 py-1.5 text-right font-semibold tabular-nums">{ct(p.weight)}</td>
+                  <td className="px-2 py-1.5">
+                    {isSP ? (
+                      <div className="flex flex-wrap items-center gap-1">
+                        {(splits[p.id] || []).map((w, x) => (
+                          <span key={x} className="flex items-center gap-1">
+                            <span className="text-[10px] text-zinc-400">{p.seq}.{x + 1}</span>
+                            <Input data-testid={`issue-split-${p.packet_no}-${x}`} value={w}
+                              onChange={(e) => setSplit(p.id, x, dec2(e.target.value))}
+                              className="h-8 w-20 rounded-none border-black/15 tabular-nums" />
+                          </span>
+                        ))}
+                        <button data-testid={`issue-split-add-${p.packet_no}`} onClick={() => addSplit(p.id)}
+                          className="border border-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase">
+                          + Sub
+                        </button>
+                        {Math.abs(splitTotal(p.id) - Number(p.weight || 0)) > 0.011 && (
+                          <span className="text-[10px] font-semibold text-[#DC2626]">
+                            {splitTotal(p.id).toFixed(2)} ≠ {Number(p.weight || 0).toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-zinc-300">—</span>
+                    )}
+                  </td>
+
                   <td className="px-2 py-1.5 text-right">
                     <button data-testid={`issue-cart-remove-${p.packet_no}`}
                       onClick={() => setCart((c) => c.filter((x) => x.id !== p.id))}
@@ -267,7 +347,7 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
         </div>
 
         <DialogFooter>
-          <Button data-testid="issue-submit-button" onClick={submit} disabled={busy || !cart.length}
+          <Button data-testid="issue-submit-button" onClick={submit} disabled={busy || !cart.length || splitBad}
             className="h-10 rounded-none bg-zinc-900 text-xs font-semibold uppercase tracking-widest">
             {busy ? "Issuing…" : `Issue ${cart.length || ""} Packets & Create Jangad`}
           </Button>

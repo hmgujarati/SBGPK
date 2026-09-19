@@ -35,6 +35,15 @@ const Slip = ({ j, copyLabel }) => {
         <Meta label="Process" value={j.process_label} />
         <Meta label="Karigar" value={j.karigar_name || "—"} />
         {j.ds ? <Meta label="D / S" value={j.ds} /> : null}
+        {j.lines.some((l) => (l.sub_packets || []).length) ? (
+          <div className="mt-2 border-t border-black/20 pt-1 text-[10px] text-zinc-600">
+            Sub-packets:{" "}
+            {j.lines
+              .flatMap((l) => (l.sub_packets || []).map((s) => `${s.no} (${Number(s.weight).toFixed(2)})`))
+              .join(", ")}
+          </div>
+        ) : null}
+
       </div>
 
       <table className="mt-3 w-full border-collapse text-[10px]">

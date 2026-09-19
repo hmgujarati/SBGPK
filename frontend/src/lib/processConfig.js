@@ -25,6 +25,16 @@ export const PROCESS_ORDER = [
   "filling",
 ];
 
+export const SP_PROCESS_ORDER = [
+  "marking",
+  "sarine",
+  "laser",
+  "shape",
+  "ghat",
+  "polish",
+  "table_polish",
+];
+
 const F = {
   hw: { key: "hw", label: "H / W", type: "text" },
   ds: { key: "ds", label: "D / S", type: "select", options: ["Double", "Single"] },

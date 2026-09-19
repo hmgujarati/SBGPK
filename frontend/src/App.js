@@ -7,6 +7,8 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Kapans from "@/pages/Kapans";
 import KapanDetail from "@/pages/KapanDetail";
+import SPKapans from "@/pages/SPKapans";
+import SPKapanDetail from "@/pages/SPKapanDetail";
 import Packets from "@/pages/Packets";
 import Karigars from "@/pages/Karigars";
 import Staff from "@/pages/Staff";
@@ -45,6 +47,8 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/kapans" element={<Kapans />} />
             <Route path="/kapans/:id" element={<KapanDetail />} />
+            <Route path="/sp-kapans" element={<SPKapans />} />
+            <Route path="/sp-kapans/:id" element={<SPKapanDetail />} />
             <Route path="/issue" element={<Packets mode="issue" />} />
             <Route path="/receive" element={<Packets mode="receive" />} />
             <Route path="/karigars" element={<Karigars />} />
