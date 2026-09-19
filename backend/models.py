@@ -146,7 +146,7 @@ class JangadCreate(BaseModel):
     ds: Optional[str] = ""
     tops: Optional[int] = 0
     expected_return_pcs: Optional[int] = 0
-    sub_packets: List[SubPacketRow] = Field(default_factory=list)
+    sub_packets: List[SubPacketRow] = Field(default_factory=list)  # legacy, unused
     notes: Optional[str] = ""
 
 

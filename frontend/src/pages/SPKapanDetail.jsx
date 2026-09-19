@@ -1,100 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Printer, Trash } from "@phosphor-icons/react";
+import { ArrowLeft, Plus, Trash } from "@phosphor-icons/react";
 import { api, apiError, ct, dec2, today } from "@/lib/api";
-import { PROCESS_LABELS } from "@/lib/processConfig";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader, Stat } from "@/components/Bits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import ReceiveDialog from "@/components/ReceiveDialog";
 
 const emptyRow = () => ({ weight: "" });
-
-const StoneChain = ({ stone, onReceive }) => (
-  <div className="border border-black/10 bg-white" data-testid={`sp-stone-${stone.packet_no}`}>
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/10 bg-zinc-50 px-3 py-2">
-      <div className="flex flex-wrap items-baseline gap-3">
-        <span className="font-heading text-base font-bold tabular-nums">{stone.packet_no}</span>
-        <span className="border border-black/15 px-1.5 py-0.5 font-heading text-[11px] font-bold tabular-nums tracking-widest">
-          {stone.code}
-        </span>
-        <span className="text-xs text-zinc-500">
-          Rough <b className="tabular-nums text-zinc-900">{ct(stone.original_weight)}</b> ct → now{" "}
-          <b className="tabular-nums text-[#16A34A]">{ct(stone.weight)}</b> ct
-        </span>
-        <span className="text-xs text-zinc-500">
-          Loss <b className="tabular-nums text-[#DC2626]">{ct(stone.total_loss)}</b> ct ({ct(stone.loss_pct)}%) · Yield{" "}
-          <b className="tabular-nums">{ct(stone.yield_pct)}%</b>
-        </span>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className={`px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-          stone.status === "issued" ? "bg-amber-50 text-[#B4975A]" : "bg-emerald-50 text-[#16A34A]"}`}>
-          {stone.status === "issued" ? `Out · ${PROCESS_LABELS[stone.current_process] || ""}` : "In stock"}
-        </span>
-        <Link to={`/labels?ids=${stone.id}`} data-testid={`sp-stone-label-${stone.packet_no}`}
-          className="text-zinc-400 hover:text-zinc-900" title="Print sticker">
-          <Printer size={14} />
-        </Link>
-      </div>
-    </div>
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[820px] border-collapse text-xs">
-        <thead>
-          <tr className="bg-zinc-900 text-white">
-            {["#", "Jangad", "Date", "Process", "Karigar", "Sub-packets", "Issue Wt", "Return Boil", "RC", "Nail RC", "Loss", "Loss %", "Carries Fwd", ""].map((h, i) => (
-              <th key={h + i} className={`px-2 py-2 font-semibold uppercase tracking-wider ${i >= 6 ? "text-right" : "text-left"}`}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {stone.steps.length === 0 && (
-            <tr><td colSpan={14} className="px-3 py-4 text-center text-zinc-500">
-              Not started — issue this stone from Packet Issue (SP mode).
-            </td></tr>
-          )}
-          {stone.steps.map((e, i) => (
-            <tr key={e.id} className="border-b border-black/5" data-testid={`sp-step-${e.jangad_no}-${i}`}>
-              <td className="px-2 py-1.5 text-zinc-400">{i + 1}</td>
-              <td className="px-2 py-1.5">
-                <Link to={`/jangad/${e.jangad_no}`} className="font-semibold tabular-nums underline decoration-[#B4975A] decoration-2 underline-offset-4">
-                  {e.jangad_no}
-                </Link>
-              </td>
-              <td className="px-2 py-1.5 text-zinc-500">{e.date}</td>
-              <td className="px-2 py-1.5 font-semibold">{PROCESS_LABELS[e.process]}</td>
-              <td className="px-2 py-1.5">{e.karigar_name || "—"}</td>
-              <td className="px-2 py-1.5 text-zinc-600">
-                {(e.sub_packets || []).length
-                  ? e.sub_packets.map((s) => `${s.no} (${Number(s.weight).toFixed(2)})`).join(", ")
-                  : "—"}
-              </td>
-              <td className="px-2 py-1.5 text-right font-semibold tabular-nums">{ct(e.weight)}</td>
-              <td className="px-2 py-1.5 text-right tabular-nums">{e.returned ? ct(e.return_boil) : "—"}</td>
-              <td className="px-2 py-1.5 text-right tabular-nums">{e.returned ? ct(e.rc) : "—"}</td>
-              <td className="px-2 py-1.5 text-right tabular-nums">{e.returned ? ct(e.nail_rc) : "—"}</td>
-              <td className="px-2 py-1.5 text-right tabular-nums text-[#DC2626]">{e.returned ? ct(e.loss) : "—"}</td>
-              <td className="px-2 py-1.5 text-right tabular-nums text-[#DC2626]">{e.returned ? `${ct(e.loss_pct)}%` : "—"}</td>
-              <td className="px-2 py-1.5 text-right font-semibold tabular-nums text-[#16A34A]">{e.returned ? ct(e.net_weight) : "—"}</td>
-              <td className="px-2 py-1.5 text-right">
-                {!e.returned && (
-                  <button data-testid={`sp-receive-${e.jangad_no}`} onClick={() => onReceive(e)}
-                    className="border border-zinc-900 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider hover:bg-zinc-900 hover:text-white">
-                    Receive
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  </div>
-);
 
 export default function SPKapanDetail() {
   const { id } = useParams();
@@ -104,7 +20,6 @@ export default function SPKapanDetail() {
   const [rows, setRows] = useState([emptyRow(), emptyRow(), emptyRow()]);
   const [date, setDate] = useState(today());
   const [busy, setBusy] = useState(false);
-  const [receiving, setReceiving] = useState(null);
 
   const load = useCallback(() => {
     api.get(`/kapans/${id}/sp-report`).then((r) => setData(r.data)).catch((e) => toast.error(apiError(e)));
@@ -116,7 +31,7 @@ export default function SPKapanDetail() {
 
   const { kapan, stones, summary } = data;
   const total = rows.reduce((a, r) => a + Number(r.weight || 0), 0);
-  const over = total > Number(summary.unpacketed_weight || 0) + 0.001;
+  const over = total > Number(summary.unstoned_weight || 0) + 0.001;
 
   const addStones = async () => {
     const payload = rows.filter((r) => Number(r.weight || 0) > 0).map((r) => ({ weight: Number(r.weight) }));
@@ -136,15 +51,21 @@ export default function SPKapanDetail() {
   };
 
   const removeStone = async (s) => {
-    if (!window.confirm(`Delete stone ${s.packet_no}? Its ${ct(s.weight)} cts return to the kapan.`)) return;
+    if (!window.confirm(`Delete stone ${s.stone_no} (${ct(s.weight)} ct) with all its packets and history?`)) return;
     try {
-      await api.delete(`/packets/${s.id}`);
+      await api.delete(`/kapans/${s.id}`);
       toast.success("Stone deleted");
       load();
     } catch (e) {
       toast.error(apiError(e));
     }
   };
+
+  const TH = ({ children, right }) => (
+    <th className={`border-r border-white/10 px-2.5 py-2.5 font-semibold uppercase tracking-wider ${right ? "text-right" : "text-left"}`}>
+      {children}
+    </th>
+  );
 
   return (
     <div data-testid="sp-kapan-detail-page">
@@ -155,7 +76,7 @@ export default function SPKapanDetail() {
 
       <PageHeader
         title={`SP Kapan ${kapan.kapan_no}`}
-        subtitle={`${kapan.date} · ${kapan.type || "—"} · ${ct(kapan.weight)} cts · ${summary.stone_count} stones`}
+        subtitle={`${kapan.date} · ${kapan.type || "—"} · ${ct(kapan.weight)} cts · ${summary.stone_count} stones · ${summary.packet_count} packets`}
       >
         {can("can_create") && (
           <Button data-testid="add-sp-stones-button" onClick={() => setOpen(true)}
@@ -168,35 +89,81 @@ export default function SPKapanDetail() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Stat testid="sp-kapan-weight" label="Kapan Weight" value={ct(summary.kapan_weight)} unit="ct" />
         <Stat testid="sp-stone-weight" label="Live Stone Weight" value={ct(summary.stone_weight)} unit="ct" tone="good" />
-        <Stat testid="sp-unpacketed" label="Un-packeted" value={ct(summary.unpacketed_weight)} unit="ct" />
+        <Stat testid="sp-unstoned" label="Not Stoned Yet" value={ct(summary.unstoned_weight)} unit="ct" />
         <Stat testid="sp-total-loss" label="Total Loss" value={ct(summary.total_loss)} unit="ct" tone="warn" />
         <Stat testid="sp-total-rc" label="RC + Nail RC" value={ct((summary.total_rc || 0) + (summary.total_nail_rc || 0))} unit="ct" />
         <Stat testid="sp-in-process" label="In Process" value={ct(summary.in_process_weight)} unit="ct" tone="accent" />
       </div>
 
-      <div className="mt-5 space-y-5">
-        {stones.length === 0 && (
-          <div className="border border-dashed border-black/15 bg-white p-10 text-center text-sm text-zinc-500">
-            No stones yet. Add the first single packet from this kapan's rough.
-          </div>
-        )}
-        {stones.map((s) => (
-          <div key={s.id}>
-            <StoneChain stone={s} onReceive={setReceiving} />
-            <div className="mt-1 flex items-center justify-between text-[11px]">
-              <span className={s.balanced ? "text-zinc-400" : "font-semibold text-[#DC2626]"}>
-                {s.balanced ? "Stone balanced" : `Unaccounted ${ct(s.difference)} ct`}
-              </span>
-              {can("can_delete") && s.step_count === 0 && (
-                <button data-testid={`sp-stone-delete-${s.packet_no}`} onClick={() => removeStone(s)}
-                  className="inline-flex items-center gap-1 text-zinc-400 hover:text-[#DC2626]">
-                  <Trash size={13} /> Delete stone
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+      <h2 className="mb-2 mt-6 font-heading text-sm font-bold uppercase tracking-[0.14em] text-zinc-500">
+        Stones — open one to work its process register
+      </h2>
+
+      {stones.length === 0 ? (
+        <div className="border border-dashed border-black/15 bg-white p-10 text-center text-sm text-zinc-500">
+          No stones yet. Add the first single packet from this kapan's rough.
+        </div>
+      ) : (
+        <div className="overflow-x-auto border border-black/10 bg-white">
+          <table className="w-full min-w-[1000px] border-collapse text-xs">
+            <thead>
+              <tr className="bg-zinc-900 text-white">
+                <TH>Stone</TH>
+                <TH right>Rough</TH>
+                <TH right>Live Wt</TH>
+                <TH right>Un-packeted</TH>
+                <TH right>Packets</TH>
+                <TH right>In Process</TH>
+                <TH right>RC</TH>
+                <TH right>Nail RC</TH>
+                <TH right>Loss</TH>
+                <TH right>Loss %</TH>
+                <TH right>Yield %</TH>
+                <TH>Stage</TH>
+                <TH>Balance</TH>
+                <TH> </TH>
+              </tr>
+            </thead>
+            <tbody>
+              {stones.map((s) => {
+                const r = s.report || {};
+                return (
+                  <tr key={s.id} className="border-b border-black/5 hover:bg-zinc-50" data-testid={`sp-stone-row-${s.stone_no}`}>
+                    <td className="border-r border-black/5 px-2.5 py-2">
+                      <Link to={`/kapans/${s.id}`} data-testid={`sp-stone-link-${s.stone_no}`}
+                        className="font-heading font-bold tabular-nums underline decoration-[#B4975A] decoration-2 underline-offset-4 hover:text-[#B4975A]">
+                        Stone {s.stone_no}
+                      </Link>
+                    </td>
+                    <td className="border-r border-black/5 px-2.5 py-2 text-right font-semibold tabular-nums">{ct(s.weight)}</td>
+                    <td className="border-r border-black/5 px-2.5 py-2 text-right tabular-nums text-[#16A34A]">{ct(s.live_weight)}</td>
+                    <td className="border-r border-black/5 px-2.5 py-2 text-right tabular-nums">{ct(r.unpacketed_weight)}</td>
+                    <td className="border-r border-black/5 px-2.5 py-2 text-right tabular-nums">{r.packet_count || 0}</td>
+                    <td className="border-r border-black/5 px-2.5 py-2 text-right tabular-nums text-[#B4975A]">{ct(r.in_process_weight)}</td>
+                    <td className="border-r border-black/5 px-2.5 py-2 text-right tabular-nums">{ct(s.total_rc)}</td>
+                    <td className="border-r border-black/5 px-2.5 py-2 text-right tabular-nums">{ct(s.total_nail_rc)}</td>
+                    <td className="border-r border-black/5 px-2.5 py-2 text-right tabular-nums text-[#DC2626]">{ct(s.total_loss)}</td>
+                    <td className="border-r border-black/5 px-2.5 py-2 text-right tabular-nums text-[#DC2626]">{ct(s.loss_pct)}%</td>
+                    <td className="border-r border-black/5 px-2.5 py-2 text-right tabular-nums">{ct(s.yield_pct)}%</td>
+                    <td className="border-r border-black/5 px-2.5 py-2 text-zinc-600">{r.current_stage_label}</td>
+                    <td className={`border-r border-black/5 px-2.5 py-2 font-semibold ${s.balanced ? "text-[#16A34A]" : "text-[#DC2626]"}`}>
+                      {s.balanced ? "OK" : ct(s.difference)}
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      {can("can_delete") && (
+                        <button data-testid={`sp-stone-delete-${s.stone_no}`} onClick={() => removeStone(s)}
+                          className="text-zinc-400 transition-colors hover:text-[#DC2626]">
+                          <Trash size={14} />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg rounded-none" data-testid="sp-stones-dialog">
@@ -224,7 +191,7 @@ export default function SPKapanDetail() {
             </button>
           </div>
           <div className={`text-xs ${over ? "font-semibold text-[#DC2626]" : "text-zinc-500"}`} data-testid="sp-stones-remaining">
-            Total <b className="tabular-nums">{ct(total)}</b> of <b className="tabular-nums">{ct(summary.unpacketed_weight)}</b> cts un-packeted
+            Total <b className="tabular-nums">{ct(total)}</b> of <b className="tabular-nums">{ct(summary.unstoned_weight)}</b> cts left in the kapan
             {over && " — exceeds the kapan"}
           </div>
           <DialogFooter>
@@ -235,8 +202,6 @@ export default function SPKapanDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <ReceiveDialog entry={receiving} onClose={() => setReceiving(null)} onDone={load} />
     </div>
   );
 }

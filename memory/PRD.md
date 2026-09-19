@@ -56,21 +56,22 @@ Files: /app/backend/server.py, models.py, core.py; /app/frontend/src/{pages,comp
   Measured at 1,006 kapans / 25,014 packets / 25,001 entries: kapans 0.64s, packets 0.46s,
   entries 0.21s, dashboard 0.20s, payloads ~50-70KB (was 1.4-2MB, pages 6-8s).
 
-## SP Kapan (single-packet kapan) — 2026-06
+## SP Kapan (single-packet kapan) — 2026-06 (restructured)
 Sidebar tab "SP Kapan" (`/sp-kapans`, `/sp-kapans/:id`).
-- Kapans carry `mode: "normal" | "sp"`; the two registers are fully isolated (`GET /api/kapans?mode=sp`).
-- `POST /api/kapans/{id}/sp-stones` — each stone = one packet (pcs 1, weight = the stone),
-  code from the shared counter with an **S** prefix (S25165). Total stones can't exceed kapan weight.
-- `GET /api/kapans/{id}/sp-report` — per-stone chain (every process step with issue wt, sub-packets,
-  boil, RC, Nail RC, loss, loss %, carries-forward) + per-stone identity check
-  `original = current + loss + rc + nail_rc` and a kapan summary.
-- Free, repeatable process order, SP_PROCESSES only: marking, sarine, laser, shape, ghat, polish,
-  table polish (Nats/Filling rejected for SP).
-- Sub-packets (1.1, 1.2 …) are carrying bags for one stone at one issue step: entered on the Issue
-  dialog, stored on the entry, printed on the jangad; their weights must sum to the stone weight
-  (tolerance 0.01). They never split the stone's identity and never nest.
-- Issue dialog has a Kapan Type select (Normal / SP). SP stones can never be issued together with
-  normal packets; karigar-process rule still applies. Receive keeps SP pcs at 1.
+- **Each stone is its own mini-kapan**: kapan docs carry `mode: "normal" | "sp" | "sp_stone"`;
+  a stone is a kapan with `parent_id`, `stone_no`, `kapan_no = "{parent}/{n}"`, weight = stone weight.
+  Opening a stone reuses the whole Kapan page: process tabs → create packets → issue → receive →
+  reconciliation. SP stone tabs are limited to SP_PROCESSES (marking, sarine, laser, shape, ghat,
+  polish, table polish — Nats/Filling rejected), usable in any order, back and forth.
+- Packets inside stone N are numbered **N.1, N.2 …** with **S**-prefixed barcodes (S00042) from the
+  shared global counter. Sub-packets are simply these packets (no separate split model).
+- `POST /api/kapans/{id}/sp-stones` adds stones (can't exceed kapan weight).
+- `GET /api/kapans/{id}/sp-report` rolls every stone up: rough, live weight, un-packeted, packets,
+  in-process, RC, Nail RC, loss, loss %, yield %, stage and balance.
+- `GET /api/kapans?mode=sp|normal` keeps the two registers isolated; stone kapans never appear in
+  either listing. Deleting an SP kapan cascades to its stones, packets and entries.
+- Issue: a jangad holds either SP-stone packets or normal packets, never both; karigar-process rule
+  and the "packet must be in that process register" rule apply to both.
 - Tests: backend/tests/test_sp_kapan.py (12) + backend_test.py (69) = **81/81 green**.
 
 - Backend test suite: 69/69 passing (/app/backend/tests/backend_test.py)

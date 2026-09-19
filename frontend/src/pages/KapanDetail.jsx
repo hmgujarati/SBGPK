@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Printer } from "@phosphor-icons/react";
 import { api, apiError, ct } from "@/lib/api";
-import { PROCESS_LABELS, PROCESS_ORDER } from "@/lib/processConfig";
+import { PROCESS_LABELS, PROCESS_ORDER, SP_PROCESS_ORDER } from "@/lib/processConfig";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader, Stat } from "@/components/Bits";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ export default function KapanDetail() {
   const { id } = useParams();
   const { can } = useAuth();
   const [k, setK] = useState(null);
-  const [tab, setTab] = useState("sarine");
+  const [tab, setTab] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [receiving, setReceiving] = useState(null);
   const [editing, setEditing] = useState(null);
@@ -29,9 +29,16 @@ export default function KapanDetail() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (k && !tab) setTab(k.mode === "sp_stone" ? "marking" : "sarine");
+  }, [k, tab]);
+
   if (!k) return <div className="p-6 text-sm text-zinc-500">Loading…</div>;
+  if (!tab) return <div className="p-6 text-sm text-zinc-500">Loading…</div>;
 
   const p = k.report || {};
+  const isStone = k.mode === "sp_stone";
+  const tabs = isStone ? SP_PROCESS_ORDER : PROCESS_ORDER;
   const stockRows = (k.packets || [])
     .filter((x) => x.process === tab && x.status !== "issued" && !x.last_process)
     .map((x) => ({ ...x, _isPacket: true, kapan_no: k.kapan_no }));
@@ -67,14 +74,16 @@ export default function KapanDetail() {
 
   return (
     <div data-testid="kapan-detail-page">
-      <Link to="/kapans" data-testid="back-to-kapans"
+      <Link to={isStone ? `/sp-kapans/${k.parent_id}` : "/kapans"} data-testid="back-to-kapans"
         className="mb-3 inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-zinc-500 transition-colors hover:text-zinc-900">
-        <ArrowLeft size={13} /> Kapan register
+        <ArrowLeft size={13} /> {isStone ? `SP Kapan ${k.parent_kapan_no}` : "Kapan register"}
       </Link>
 
       <PageHeader
-        title={`Kapan ${k.kapan_no}`}
-        subtitle={`${k.date} · ${k.type || "—"} · ${k.pcs} pcs · ${ct(k.weight)} cts · size ${ct(k.size)} · ${p.packet_count || 0} packets`}
+        title={isStone ? `Stone ${k.stone_no} · ${ct(k.weight)} ct` : `Kapan ${k.kapan_no}`}
+        subtitle={isStone
+          ? `SP Kapan ${k.parent_kapan_no} · ${k.date} · ${k.type || "—"} · packets numbered ${k.stone_no}.1, ${k.stone_no}.2 … · ${p.packet_count || 0} packets`
+          : `${k.date} · ${k.type || "—"} · ${k.pcs} pcs · ${ct(k.weight)} cts · size ${ct(k.size)} · ${p.packet_count || 0} packets`}
       />
 
       <h2 className="mb-2 font-heading text-sm font-bold uppercase tracking-[0.14em] text-zinc-500">
@@ -112,7 +121,7 @@ export default function KapanDetail() {
       </div>
 
       <div className="no-print mt-6 flex flex-wrap gap-1 border-b border-black/10 pb-2">
-        {PROCESS_ORDER.map((t) => {
+        {tabs.map((t) => {
           const n = countFor(t);
           return (
             <button
