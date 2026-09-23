@@ -566,6 +566,7 @@ async def delete_kapan(kapan_id: str, user: dict = Depends(get_current_user)):
 async def list_packets(
     status: Optional[str] = None,
     process: Optional[str] = None,
+    for_process: Optional[str] = None,
     mode: Optional[str] = None,
     q: Optional[str] = None,
     page: int = 1,
@@ -577,13 +578,21 @@ async def list_packets(
         query["status"] = status
     if process:
         query["process"] = process
+    if for_process:
+        # issuable into this process: fresh packets of that register, or any packet that has
+        # already come back from a process and is free to go anywhere next
+        query["$and"] = [{"$or": [
+            {"process": for_process, "last_process": None},
+            {"last_process": {"$ne": None}},
+        ]}]
     if mode == "sp":
         query["mode"] = "sp_stone"
     elif mode == "normal":
         query["mode"] = {"$ne": "sp_stone"}
     if q:
         rx = {"$regex": re.escape(q), "$options": "i"}
-        query["$or"] = [{"code": rx}, {"packet_no": rx}]
+        query.setdefault("$and", []).append({"$or": [{"code": rx}, {"packet_no": rx}]})
+        query.pop("$or", None)
     limit = max(1, min(limit, 1000))
     skip = max(0, (page - 1) * limit)
     total = await db.packets.count_documents(query)
@@ -833,7 +842,13 @@ async def create_jangad(payload: JangadCreate, user: dict = Depends(get_current_
                 status_code=400,
                 detail=f"{PROCESS_LABELS.get(payload.process, payload.process)} is not part of the SP kapan flow",
             )
-    wrong = [p["packet_no"] for p in packets if p.get("process") and p.get("process") != payload.process]
+    # A packet that has already been through a process (returned once) is free to go to any
+    # process next — laser again, shape cutting, ghat, whatever. Only a brand-new packet must
+    # be issued to the register it was created in.
+    wrong = [
+        p["packet_no"] for p in packets
+        if not p.get("last_process") and p.get("process") and p.get("process") != payload.process
+    ]
     if wrong:
         raise HTTPException(
             status_code=400,
@@ -889,7 +904,7 @@ async def create_jangad(payload: JangadCreate, user: dict = Depends(get_current_
         entries.append(serialize(entry))
         await db.packets.update_one(
             {"_id": packet["_id"]},
-            {"$set": {"status": "issued", "current_process": payload.process}},
+            {"$set": {"status": "issued", "process": payload.process, "current_process": payload.process}},
         )
 
     return {

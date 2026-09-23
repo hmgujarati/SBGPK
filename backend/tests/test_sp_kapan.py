@@ -189,17 +189,20 @@ class TestSPIssueReceive:
         body = rr.json()
         assert body["loss"] == 2.0 and body["net_weight"] == 46.5
 
-        # same packet goes on to laser — a stone can go back and forth through processes
+        # same packet goes on to laser — a returned packet is free to go to any process next
         r2 = _issue(admin, "laser", [pid], karigar_id=kar["id"], karigar_name=kar["name"])
-        assert r2.status_code == 400  # packet sits in the marking register, not laser
-        assert "not in the Laser Sawing list" in r2.json()["detail"]
+        assert r2.status_code == 200, r2.text
+        e2 = r2.json()["entries"][0]
+        assert e2["process"] == "laser" and e2["weight"] == 46.5
+        rr2 = receive(admin, e2["id"], return_pcs=1, return_weight=46.0, return_boil=46.0, rc=0.0, nail_rc=0.0)
+        assert rr2.status_code == 200, rr2.text
 
         rep = _sp_report(admin, setup["kapan"]["id"])
         stone = rep["stones"][0]
         assert stone["total_rc"] == 1.0 and stone["total_nail_rc"] == 0.5
-        assert stone["total_loss"] == 2.0
+        assert stone["total_loss"] == 2.5
         assert stone["balanced"] is True
-        assert rep["summary"]["total_loss"] == 2.0
+        assert rep["summary"]["total_loss"] == 2.5
 
     def test_sp_processes_only_on_jangad(self, admin, setup):
         k = _new_sp_kapan(admin, weight=60.0)

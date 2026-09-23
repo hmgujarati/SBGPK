@@ -74,6 +74,11 @@ Sidebar tab "SP Kapan" (`/sp-kapans`, `/sp-kapans/:id`).
   and the "packet must be in that process register" rule apply to both.
 - Tests: backend/tests/test_sp_kapan.py (12) + backend_test.py (69) = **81/81 green**.
 
+- 2026-06: A packet that has come back from a process (`last_process` set) can be re-issued to
+  ANY process next (laser again, shape, ghat …). Its `process` follows the new jangad, so it moves
+  into that register. Only a brand-new packet is locked to the register it was created in.
+  `GET /api/packets?for_process=X` returns what's issuable into X (fresh X packets + all returned
+  packets); the Issue dialog shows a Stage column ("new" / "after Polish").
 - Backend test suite: 69/69 passing (/app/backend/tests/backend_test.py)
 
 ## Backlog

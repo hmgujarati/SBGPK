@@ -43,7 +43,7 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
       .then((r) => setKarigars(r.data))
       .catch(() => setKarigars([]));
     api.get("/packets", {
-      params: { status: "in_stock", mode: isSP ? "sp" : "normal", process: form.process, limit: 200 },
+      params: { status: "in_stock", mode: isSP ? "sp" : "normal", for_process: form.process, limit: 200 },
     })
       .then((r) => setStock({ items: r.data.items, total: r.data.total }))
       .catch(() => setStock({ items: [], total: 0 }));
@@ -85,7 +85,7 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
           ? `${p.packet_no} belongs to an SP kapan stone — switch to SP mode to issue it`
           : `${p.packet_no} is a normal kapan packet — switch to Normal mode to issue it`
       );
-    if (p.process !== form.process)
+    if (!p.last_process && p.process !== form.process)
       return toast.error(`${p.packet_no} is in the ${PROCESS_LABELS[p.process]} list, not ${PROCESS_LABELS[form.process]}`);
     setCart((c) => [...c, p]);
   };
@@ -226,6 +226,7 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
                 <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Code</th>
                 <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Kapan</th>
                 <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Packet</th>
+                <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">Stage</th>
                 <th className="px-2 py-2 text-right font-semibold uppercase tracking-wider">Pcs</th>
                 <th className="px-2 py-2 text-right font-semibold uppercase tracking-wider">Weight</th>
                 <th className="px-2 py-2" />
@@ -234,7 +235,7 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
             <tbody>
               {cart.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-zinc-500">
+                  <td colSpan={7} className="px-3 py-6 text-center text-zinc-500">
                     Nothing scanned yet — scan a packet sticker or pick one below.
                   </td>
                 </tr>
@@ -245,6 +246,10 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
                   <td className="px-2 py-1.5 font-heading font-bold tabular-nums tracking-widest">{p.code || "—"}</td>
                   <td className="px-2 py-1.5 tabular-nums">{p.kapan_no}</td>
                   <td className="px-2 py-1.5 font-semibold tabular-nums">{p.packet_no}</td>
+                  <td className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-zinc-500">
+                    {p.last_process ? `after ${PROCESS_LABELS[p.last_process]}` : "new"}
+                  </td>
+
                   <td className="px-2 py-1.5 text-right tabular-nums">{p.pcs}</td>
                   <td className="px-2 py-1.5 text-right font-semibold tabular-nums">{ct(p.weight)}</td>
 
@@ -284,6 +289,9 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
                     <td className="px-2 py-1.5 font-heading font-bold tabular-nums tracking-widest">{p.code || "—"}</td>
                     <td className="px-2 py-1.5 tabular-nums">{p.kapan_no}</td>
                     <td className="px-2 py-1.5 font-semibold tabular-nums">{p.packet_no}</td>
+                    <td className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-zinc-500">
+                      {p.last_process ? `after ${PROCESS_LABELS[p.last_process]}` : "new"}
+                    </td>
                     <td className="px-2 py-1.5 text-right tabular-nums">{p.pcs}</td>
                     <td className="px-2 py-1.5 text-right font-semibold tabular-nums">{ct(p.weight)}</td>
                   </tr>
