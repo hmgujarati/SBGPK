@@ -295,6 +295,34 @@ class TestReceiveAfterSplit:
             admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
 
 
+class TestInProcessNotDrawable:
+    """Material issued to a karigar (status='issued') is in-process and must NEVER
+    be included in the stock pool of any stage."""
+
+    def test_in_process_weight_not_available_to_any_stage(self, admin):
+        k = _new_sp_kapan(admin, weight=50.0)
+        try:
+            _add_stones(admin, k["id"], [30.0])
+            sid = _stone(admin, k["id"])["id"]
+
+            # allocate all rough to a marking packet, then ISSUE it (do NOT receive)
+            p = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
+            _issue_bulk(admin, "marking", [p["id"]])
+
+            # nothing should be drawable — 0 un-packeted + 0 in stock (it's with karigar)
+            # try from another stage (laser) — must be refused
+            r = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 1.0}])
+            assert r.status_code == 400, r.text
+            d = r.json()["detail"]
+            assert "0.00 un-packeted" in d and "0.00 in stock" in d
+
+            # and marking obviously can't self-source
+            r2 = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 0.5}])
+            assert r2.status_code == 400
+        finally:
+            admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+
 class TestStagePoolRule:
     """Material already held by packets of the same stage is not available again."""
 

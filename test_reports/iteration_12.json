@@ -1,0 +1,27 @@
+{
+  "summary": "Re-verified the new stage-pool rule (a process register can only draw from un-packeted rough + stock held by packets of OTHER stages). Pytest 91/91 green (added TestInProcessNotDrawable to /app/backend/tests/test_split_from_stock.py to confirm material currently issued to a karigar is not drawable by any stage — the error message reads '0.00 un-packeted + 0.00 in stock in other stages'). Existing TestStagePoolRule::test_stage_can_only_draw_from_other_stages already covers the primary user scenario: fully packet a stone in marking → marking cannot re-create anything → laser can draw 12 from the marking stock → laser cannot then re-draw its own 12 (only 18 remains) → after 18 is taken, everything is refused, balanced=True. Playwright end-to-end on the exact user data (SP kapan 436.57, stone 1 / 46.78 ct with packets 1.2 marking 11.78, 1.3+1.4 sarine 30.00, 1.5 laser 5.00): opened Add-Packets on every process tab; bulk-remaining reads (verbatim) 'Available for this stage: 35.00/16.78/41.78/46.78/46.78/46.78 cts (un-packeted rough + stock in other stages)' for marking/sarine/laser/shape/ghat/polish — exactly stone_weight minus that stage's own in_stock share. Over-budget on laser (999 cts) flips label red with '— total exceeds this' and disables the CREATE PACKETS button. balance-bar reads BALANCED with un-packeted 0.00 / stock 46.78 / accounted 46.78. No regressions detected in issue/receive, delete, or SP/kapan register.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_split_from_stock.py",
+    "/app/backend/tests/test_sp_kapan.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter12_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "create_process_packets stock_pool now filters `p['process'] != payload.process` AND status=='in_stock' — issued packets (status='issued') are correctly excluded, so in-process weight can never be drawn (verified by new TestInProcessNotDrawable).",
+    "Error message 'X.XX un-packeted + Y.YY in stock in other stages' is precise and matches the UI label — good UX symmetry.",
+    "The consumed source packets vanish from the register (status='consumed' hidden by get_kapan) — no ghost rows.",
+    "Cosmetic only: split_from is captured from the FIRST touched source even if consumption spans multiple sources — noted in iter 11, still fine.",
+    "server.py monolith (~1477 lines) — non-blocking, but consider domain routers when convenient."
+  ],
+  "updated_files": ["/app/backend/tests/test_split_from_stock.py"],
+  "success_rate": {"backend": "100% (91/91)", "frontend": "100% — user scenario reproduced and PASSED"},
+  "test_credentials": "admin@polki.com/admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None new. Playwright used the pre-existing SP kapan 436.57 (stones 1/3/4) mentioned by main agent, and read-only inspected it plus opened/cancelled an over-budget dialog. All ephemeral pytest kapans self-cleaned via `finally: DELETE /api/kapans/{id}`.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Stage-pool rule fully covered by test_split_from_stock.py::TestStagePoolRule and ::TestInProcessNotDrawable. The bulk-remaining label is now 'Available for this stage: N cts (un-packeted rough + stock in other stages)' — search this exact substring in the frontend if you need to grep. The budget error detail contains 'available for <Process>' and both 'un-packeted' + 'in stock in other stages'. Stock pool excludes: (a) same-process packets, (b) status!='in_stock' (issued/consumed), (c) weight<=0. SP kapan 436.57 (stone 1 46.78 ct) is a good live fixture for repro.",
+  "rca of the issue": "User bug 'in SP kapan 436.57, i created a packet in laser but it not getting created' was caused by the stock_pool previously including in_stock packets of the SAME target process — so re-creating a packet in laser saw its own laser stock as available material and the budget never went to zero. Fix (already in place in create_process_packets and mirrored in KapanDetail.jsx / BulkPacketDialog.jsx): stock_pool = [ p for p in packets if p.status=='in_stock' and p.weight>0 and p.process != target_process ]. In the frontend, `remaining = unpacketed_weight + sum(weight of stock packets where process != current tab)`. Verified with 91 tests plus live UI: laser tab on stone 1 shows Available=41.78 = 46.78 − 5.00 (its own 1.5 laser packet), and over-budget disables Save. Mass balance identity holds across every split (stock unchanged, un-packeted untouched, source weight drops exactly by amount consumed, fully-eaten sources go status='consumed' and disappear from the register)."
+}

@@ -86,6 +86,11 @@ Sidebar tab "SP Kapan" (`/sp-kapans`, `/sp-kapans/:id`).
   store `original_weight` = rough part only, `carried_weight`, `split_from` and inherit the source's
   stage. Deleting a split packet is refused to protect the balance. Dialog label:
   "Available to packet: N cts (un-packeted rough + stock)".
+- 2026-06: **Stage pool rule** — a process register can create packets only from un-packeted rough
+  + stock held by packets of OTHER stages (never its own, never material out with a karigar).
+  Creating consumes that weight from the source packet(s), so the available figure drops and once a
+  stage holds all the material nothing more can be created there. Dialog label: "Available for this
+  stage: N cts (un-packeted rough + stock in other stages)". Error names the stage and the split.
 - Backend test suite: 69/69 passing (/app/backend/tests/backend_test.py)
 
 ## Backlog
