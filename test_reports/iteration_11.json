@@ -1,0 +1,34 @@
+{
+  "summary": "Bug fix verified end-to-end: SP stone with un-packeted 0.00 can now create packets for the next process by consuming from stock. Added 7 new backend edge-case tests (/app/backend/tests/test_split_from_stock.py) covering (1) partial consumption across multiple source stock packets, (2) a single row that spans rough + stock, (3) delete-refused for split packets and delete-allowed for normal packets, (4) normal (non-SP) kapan stock-split flow, (5) over-budget rejection with 'un-packeted + in stock' in the message, (6) issue/receive still works on packets born from a stock-split. Combined pytest suite 89/89 green (82 prior + 7 new). Playwright end-to-end reproduction of the user's exact scenario: created SP kapan SPUI28465 (100 cts) with 1 stone (46.78 cts), fully allocated to a marking packet 1.1, issued+received with no loss so un-packeted=0.00 / stock=46.78; opened stone in UI, switched to Sarine tab, opened Add Packets — bulk-remaining label reads exactly 'Available to packet: 46.78 cts (un-packeted rough + stock)' (not the old 'Un-packeted left: 0.00 cts — total exceeds this'); entered 500 → label flipped to red '— total exceeds this' and save was disabled; entered 18 + 12 → save succeeded, dialog closed, register now shows 3 packets with sarine 1.2 (18) and 1.3 (12), both split_from=1.1 last_process=marking; balance-bar reads BALANCED with un-packeted 0.00 / stock 46.78 / accounted 46.78. Delete of a split packet correctly returns 400 with 'split out of stock' in the message. No regressions in existing 82 tests.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_split_from_stock.py",
+    "/app/backend/tests/test_sp_kapan.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/split_stock_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "create_process_packets: rough-first then stock-in-seq-order consumption is deterministic and mass-safe — original_weight only stores the rough part, carried_weight the stock part, so the packeted-sum (which drives unpacketed_weight) never inflates.",
+    "consumed_from is captured on the FIRST source that is touched — new packets record split_from = first-source.packet_no even if their weight actually spanned several stock packets. Cosmetic only (routing/last_process are also read from that first source), but if the next enhancement lets sources at different last_process co-mingle in one row, the inheritance rule will need re-thinking. Today's guardrails prevent that from mattering because all stock packets of a kapan share the same last_process story typically.",
+    "build_reports correctly excludes status='consumed' from packet_count and stock/polish/in_process buckets but still counts their original_weight toward 'packeted' — this is the key that keeps un-packeted unchanged across a split.",
+    "delete_packet refuses any packet with carried_weight > 0, which is the right guard: undeleting one would silently orphan the weight it took from a consumed source.",
+    "get_kapan hides status='consumed' rows from the register — good, no ghost rows in the UI table.",
+    "BulkPacketDialog: 'over' comparison uses Number(remaining) + 0.001 tolerance, matching backend's `budget + 0.001` — symmetric, no off-by-cent UX surprises.",
+    "KapanDetail.jsx feeds remaining = unpacketed_weight + stock_weight + polish_weight; polish_weight is included so shape-cutting a returned polish packet is possible — matches backend logic which lets polish packets be in the stock_pool (any status=='in_stock' packet with weight>0).",
+    "server.py is now 1477 lines — still monolithic; consider splitting into domain routers when time permits (non-blocking)."
+  ],
+  "updated_files": ["/app/backend/tests/test_split_from_stock.py"],
+  "success_rate": {"backend": "100% (89/89)", "frontend": "100% — user scenario reproduced and PASSED"},
+  "test_credentials": "admin@polki.com/admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Playwright run created/cleaned up SP kapan SPUI28465 (100 cts, 1 stone 46.78 cts) automatically. A prior aborted run left SPUI78956 which was cleaned up before the successful run. Karigar SP_MARK_K (pre-existing seed) was reused. No test data leaked.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Split-from-stock bug fix fully covered. Key testids on the flow: kapan-detail-page, rep-unpacketed, balance-bar, kapan-tab-{process}, bulk-add-packets-button, bulk-packet-dialog, bulk-remaining, bulk-pcs-{i}, bulk-weight-{i}, bulk-save-button. Backend fields: packet.original_weight = rough part only, packet.carried_weight = stock part, packet.split_from = source packet_no, packet.last_process inherited from the first consumed source, packet.status='consumed' hides the fully-eaten source from the register. Budget error message contains 'X.XX un-packeted + Y.YY in stock'. delete_packet refuses carried_weight > 0.",
+  "rca of the issue": "Root cause of the reported user bug: create_process_packets was budgeting only against un-allocated rough (kapan.weight - sum(original_weight)), so once a kapan/stone was fully packeted its next-process register was permanently blocked. Fix (already in place from main agent): add a stock_pool of in_stock packets with weight>0, extend the budget to rough_left + stock_left, consume from rough first then eat into stock packets in seq order (reducing their weight and flipping them to status='consumed' when zeroed). New packets record only their rough share as original_weight so packeted-sum (and hence un-packeted) is untouched; the stock share is book-kept in carried_weight and the packet inherits split_from + last_process from its source, letting it live in the same weight bucket. build_reports excludes consumed packets from packet_count/stock/polish/in_process while still counting their rough. delete_packet refuses any packet with carried_weight>0. All these together keep the mass-balance identity (kapan_weight = rc + nail_rc + losses + in_process + polish + stock + unpacketed - filling_gain) holding across every split. Verified with 7 new tests + Playwright end-to-end on both SP and normal kapans."
+}

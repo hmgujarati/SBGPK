@@ -79,6 +79,13 @@ Sidebar tab "SP Kapan" (`/sp-kapans`, `/sp-kapans/:id`).
   into that register. Only a brand-new packet is locked to the register it was created in.
   `GET /api/packets?for_process=X` returns what's issuable into X (fresh X packets + all returned
   packets); the Issue dialog shows a Stage column ("new" / "after Polish").
+- 2026-06: Packet creation draws from **un-packeted rough + material in stock**. Creating packets in
+  a process consumes weight from in-stock packets (fresh or returned, lowest seq first); the source
+  packet's weight drops by exactly that much and a fully used source is marked `consumed`
+  (hidden from registers, still counted as packeted rough so un-packeted stays right). New packets
+  store `original_weight` = rough part only, `carried_weight`, `split_from` and inherit the source's
+  stage. Deleting a split packet is refused to protect the balance. Dialog label:
+  "Available to packet: N cts (un-packeted rough + stock)".
 - Backend test suite: 69/69 passing (/app/backend/tests/backend_test.py)
 
 ## Backlog
