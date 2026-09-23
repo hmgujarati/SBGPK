@@ -1023,16 +1023,24 @@ async def undo_packet_split(packet_id: str, user: dict = Depends(get_current_use
         raise HTTPException(status_code=404, detail="Packet not found")
     if await db.entries.count_documents({"packet_id": _id}):
         raise HTTPException(status_code=400, detail="Packet has process entries — delete those first")
-    if packet.get("status") == "issued":
-        raise HTTPException(status_code=400, detail="Packet is out with a karigar")
+    if packet.get("status") != "in_stock":
+        raise HTTPException(
+            status_code=400,
+            detail="Packet is out with a karigar or its weight has already been cut into another packet",
+        )
     carried = r2(packet.get("carried_weight"))
     if carried <= 0 or not packet.get("split_from"):
         raise HTTPException(status_code=400, detail="This packet was not cut out of stock material")
+    # only what this packet still holds goes back — anything already cut out of it stays
+    # with the downstream packet, so the total on the floor never changes
+    give_back = r2(min(carried, r2(packet.get("weight"))))
+    if give_back <= 0:
+        raise HTTPException(status_code=400, detail="Nothing left in this packet to give back")
 
     source = await db.packets.find_one({"kapan_id": packet["kapan_id"], "packet_no": packet["split_from"]})
     if not source:
         raise HTTPException(status_code=400, detail=f"Source packet {packet['split_from']} no longer exists")
-    weight = r2(r2(source.get("weight")) + carried)
+    weight = r2(r2(source.get("weight")) + give_back)
     pcs = int(source.get("pcs") or 0) or int(source.get("original_pcs") or 1)
     await db.packets.update_one(
         {"_id": source["_id"]},
@@ -1041,7 +1049,7 @@ async def undo_packet_split(packet_id: str, user: dict = Depends(get_current_use
     )
     await db.packets.delete_one({"_id": _id})
     return {"ok": True, "packet_no": packet.get("packet_no"), "returned_to": source.get("packet_no"),
-            "weight": carried}
+            "weight": give_back}
 
 
 @api.get("/packets/lookup")

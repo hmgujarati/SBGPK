@@ -1,0 +1,37 @@
+{
+  "summary": "New rule verified end-to-end: pool = un-packeted rough + ALL in-stock packets (any stage), material issued to a karigar is excluded. Backend pytest = 96/97 (one real bug found: chained-split undo double-counts). Playwright on a fresh 30 ct normal kapan reproduced the exact user scenario — after all 30 ct sits in a marking packet, LASER tab shows 'Available: 30.00 cts (un-packeted rough + stock pre-polish)' and creates a 12 ct laser packet; SHAPE tab then still reads 'Available: 30.00 cts …' (weight moved between packets, total stays 30). Over-budget flips label to '… — total exceeds this' and disables CREATE PACKETS. Undo Split button (data-testid packet-undo-split-{packet_no}) is present on the split packet; clicking it returned 12 cts to UTK167006-01, cleared the laser register, and the BALANCED bar re-read stock 30.00 / un-packeted 0.00. Balance identity holds across create → split → undo. New pytest module test_undo_split_edge.py adds 4 targeted edge-cases as requested by main agent.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/packets/{id}/undo-split",
+        "issue": "Chained split A→B→C double-counts: when B has been fully consumed by C (B.status='consumed', B.weight=0 but B.carried_weight unchanged), undoing B blindly adds B.carried back to A. Result: A revives with full weight AND C keeps its weight → live packets sum to 2× the stone/kapan weight, balanced becomes false. Repro (verified): fresh SP stone 30 ct → marking 30 → laser 30 (consumes marking; A=1.1 becomes 'consumed') → shape 30 (consumes laser; B=1.2 becomes 'consumed') → POST undo-split on 1.2 returns 200 {returned_to:'1.1', weight:30.0}. After: register shows 1.1=30 (revived) + 1.3=30 = 60 cts on a 30 ct stone. Fix idea: refuse undo-split when packet.status=='consumed' (its weight has moved downstream), OR return only the packet's CURRENT weight (not carried_weight) to the source. Same class of bug applies to any A→B→…→X chain if you undo any non-leaf node.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_undo_split_edge.py",
+    "/app/backend/tests/test_split_from_stock.py",
+    "/app/test_reports/pytest/iter13_results.xml"
+  ],
+  "action_items": [
+    "Fix undo_packet_split: either (a) require packet.status=='in_stock' (block undo of a source that has already been consumed by a downstream split), or (b) use r2(packet['weight']) instead of carried_weight when adding back to source AND reject if packet.weight==0. Option (a) matches the user's mental model ('undo it if needed') because leaves are what got created — undoing an intermediate is ambiguous."
+  ],
+  "critical_code_review_comments": [
+    "server.py::create_process_packets consume-from-stock loop never mutates the source packet's carried_weight, so a fully-consumed source still carries the pre-consumption carried_weight — this is what makes chained undo unsafe.",
+    "delete_packet correctly refuses split packets and points at Undo Split — good UX.",
+    "undo_packet_split correctly revives status from 'consumed' to 'in_stock' for the immediate source — verified in test_undo_revives_consumed_source.",
+    "Row-spanning-rough+stock undo works: only the carried (5 cts of a 25 cts row) is returned to the source, the 20 cts of rough correctly flows back to un-packeted — verified in TestUndoRowSpanningRoughAndStock.",
+    "Staff (can_delete=false) correctly gets 403 on undo-split — verified in TestStaffCannotUndoSplit."
+  ],
+  "updated_files": ["/app/backend/tests/test_undo_split_edge.py"],
+  "success_rate": {"backend": "99% (96/97)", "frontend": "100%"},
+  "test_credentials": "admin@polki.com/admin123, staff@polki.com/staff123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Ephemeral pytest kapans (all cleaned up in finally). One Playwright kapan UTK167006 was created and deleted.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Chained-split hole lives in server.py::undo_packet_split (lines ~1016-1044): it adds packet.carried_weight to source regardless of whether the packet was already fully consumed by a downstream split. Deterministic repro: SP kapan 60, one 30 ct stone, marking 30 → laser 30 → shape 30, then POST /api/packets/{laser_packet_id}/undo-split. See test_undo_split_edge.py::TestChainedSplitUndoMiddle. All other undo-split edge cases (revive-consumed-single, row spans rough+stock, staff denied, plain packet rejected, packet with entries rejected, issued packet rejected) already pass. Availability label in UI is 'Available: N.NN cts (un-packeted rough + stock pre-polish)' + optional ' — total exceeds this' suffix.",
+  "rca of the issue": "Bug: chained-split undo double-count. Sequence: (1) marking packet A gets 30 ct of rough. (2) creating laser B for 30 ct consumes A → A.weight=0, A.status='consumed', A.carried_weight=0; B.weight=30, B.carried_weight=30, B.split_from='A.packet_no'. (3) creating shape C for 30 ct consumes B → B.weight=0, B.status='consumed', but B.carried_weight is NOT decremented (create_process_packets only touches weight/pcs/size/status of the source); C.weight=30, C.carried_weight=30, C.split_from='B.packet_no'. (4) undo_packet_split(B) checks: has entries? no. issued? no. carried>0 and split_from set? YES (B.carried_weight=30, B.split_from=A). It then blindly adds 30 to A and deletes B. Result: A revives with 30, C still has 30, stone weight is only 30 → 60 alive cts. Mitigation options: (a) reject undo-split when packet.status=='consumed'; (b) return only r2(packet['weight']) (which is 0 for a consumed intermediate) — safer and preserves current API shape but makes the endpoint silently useless on consumed packets, so refuse with a clear error is better. Recommended one-liner near line 1029: `if packet.get('status') == 'consumed' or r2(packet.get('weight')) <= 0: raise HTTPException(400, 'This packet was already used to create a downstream split — undo those first')`."
+}
