@@ -39,8 +39,11 @@ export default function KapanDetail() {
   const p = k.report || {};
   const isStone = k.mode === "sp_stone";
   const tabs = isStone ? SP_PROCESS_ORDER : PROCESS_ORDER;
+  // a packet that already has jangad history is shown by its history rows only
+  const withHistory = new Set((k.entries || []).map((e) => e.packet_id));
   const stockRows = (k.packets || [])
-    .filter((x) => x.process === tab && x.status !== "issued" && x.stock_state !== "returned")
+    .filter((x) => x.process === tab && x.status !== "issued"
+      && x.stock_state !== "returned" && !withHistory.has(x.id))
     .map((x) => ({ ...x, _isPacket: true, kapan_no: k.kapan_no }));
   const rows = [
     ...stockRows,

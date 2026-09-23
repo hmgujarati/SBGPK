@@ -1503,6 +1503,15 @@ async def startup():
     await db.kapans.create_index([("created_at", -1)])
     await db.kapans.create_index("kapan_no", unique=True)
 
+    # backfill stock_state on older databases: an in-stock packet is free stock ("returned")
+    # only if it has actually come back from a process, otherwise it is a locked new packet
+    async for pk in db.packets.find({"status": "in_stock", "stock_state": {"$exists": False}}, {"_id": 1}):
+        has_return = await db.entries.count_documents({"packet_id": pk["_id"], "returned": True})
+        await db.packets.update_one(
+            {"_id": pk["_id"]},
+            {"$set": {"stock_state": "returned" if has_return else "fresh"}},
+        )
+
     admin_email = os.environ["ADMIN_EMAIL"].lower()
     admin_password = os.environ["ADMIN_PASSWORD"]
     all_perms = {k: True for k in Permissions().model_dump()}

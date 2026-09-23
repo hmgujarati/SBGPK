@@ -125,3 +125,6 @@ See /app/memory/test_credentials.md (admin@polki.com / admin123).
   packet is consumed by a split (`GET /kapans/{id}` now resolves packet_no from all packets, not just
   live ones); (2) an IN STOCK row is shown only for packets not yet issued (`stock_state !== "returned"`),
   so a received packet no longer appears twice (stock row + its own history row).
+- 2026-06-23: Duplicate-row fix made DB-agnostic — the stock row is also suppressed when the packet
+  already has jangad history (`entries.packet_id`), and `startup()` backfills `stock_state` on any
+  in-stock packet missing it, so older/production databases self-heal on the next restart.
