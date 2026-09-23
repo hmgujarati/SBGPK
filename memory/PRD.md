@@ -91,6 +91,16 @@ Sidebar tab "SP Kapan" (`/sp-kapans`, `/sp-kapans/:id`).
   Creating consumes that weight from the source packet(s), so the available figure drops and once a
   stage holds all the material nothing more can be created there. Dialog label: "Available for this
   stage: N cts (un-packeted rough + stock in other stages)". Error names the stage and the split.
+- 2026-06: **Stock pool rule (final)** — weight that comes back from any process sits in stock
+  (pre-polish) and is fully available to ANY process. Available = un-packeted rough + every in-stock
+  packet's weight, whichever stage holds it; material out with a karigar is excluded. Creating
+  packets consumes that weight from source packets (lowest seq first), so the total never grows.
+  Dialog label: "Available: N cts (un-packeted rough + stock pre-polish)".
+- 2026-06: **Undo Split** — `POST /api/packets/{id}/undo-split` (admin) puts a split packet's weight
+  back into the packet it was cut from and deletes it. Guards: packet must be `in_stock` (a packet
+  already cut into a downstream packet is refused), no process entries, and only
+  `min(carried_weight, current weight)` is returned so chained splits can't double count.
+  Button: `packet-undo-split-{packet_no}` in the process register.
 - Backend test suite: 69/69 passing (/app/backend/tests/backend_test.py)
 
 ## Backlog

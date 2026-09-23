@@ -102,26 +102,65 @@ class TestChainedSplitUndoMiddle:
             assert live[c["packet_no"]]["weight"] == 30.0
             assert src["packet_no"] not in live and b["packet_no"] not in live
 
-            # Try to undo B (middle of chain). Two acceptable outcomes:
-            # (a) refused with a clear message about needing to undo C first, OR
-            # (b) succeeds and the resulting state stays balanced with no double count.
+            # After fix: undo of a consumed middle packet MUST be refused (400)
             r = admin.post(f"{API}/packets/{b['id']}/undo-split", timeout=TIMEOUT)
+            assert r.status_code == 400, r.text
+            msg = (r.json().get("detail") or "").lower()
+            assert "karigar" in msg or "cut into another" in msg or "downstream" in msg, r.text
             rep = _stone(admin, sid)["report"]
-            if r.status_code == 200:
-                # If it succeeded, mass balance MUST still hold.
-                assert rep["balanced"] is True, (r.json(), rep)
-                # And total live packet weight can NEVER exceed stone weight (30).
-                live2 = [p for p in _packets(admin, sid)]
-                total = round(sum(float(p["weight"]) for p in live2), 2)
-                assert total <= 30.0 + 0.01, f"double-counted: live packets sum to {total}, stone=30. {live2}"
-            else:
-                assert r.status_code == 400, r.text
-                # register untouched
-                live2 = {p["packet_no"]: p for p in _packets(admin, sid)}
-                assert c["packet_no"] in live2 and live2[c["packet_no"]]["weight"] == 30.0
-                assert rep["balanced"] is True
+            live2 = {p["packet_no"]: p for p in _packets(admin, sid)}
+            assert c["packet_no"] in live2 and live2[c["packet_no"]]["weight"] == 30.0
+            assert src["packet_no"] not in live2 and b["packet_no"] not in live2
+            total = round(sum(float(p["weight"]) for p in live2.values()), 2)
+            assert total == 30.0, f"live total should equal stone weight, got {total}"
+            assert rep["balanced"] is True, rep
         finally:
             admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+class TestPartialChainUndo:
+    """A 30 → B 12 (A left 18) → C 5 out of B (B left 7).
+    Undoing B (still in_stock with 7 left) must give ONLY 7 back to A. C keeps
+    its 5, total on the floor stays 30 and balance holds."""
+
+    def test_partial_chain_undo_gives_back_current_weight(self, admin):
+        k = _sp_kapan(admin, weight=60.0)
+        try:
+            _add_stone(admin, k["id"], 30.0)
+            sid = _stone(admin, k["id"])["id"]
+
+            a = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
+            b = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 12.0}]).json()["created"][0]
+            c = _bulk(admin, sid, "shape", [{"pcs": 1, "weight": 5.0}]).json()["created"][0]
+
+            # Whatever the internal pool ordering, total live weight must equal 30
+            live = {p["packet_no"]: p for p in _packets(admin, sid)}
+            total_before = round(sum(float(p["weight"]) for p in live.values()), 2)
+            assert total_before == 30.0, live
+            # B was created for 12 and (not consumed by C — C drew from stock pool,
+            # oldest first), so B still holds its 12 with carried=12
+            assert round(live[b["packet_no"]]["weight"], 2) == 12.0
+            b_weight_before = live[b["packet_no"]]["weight"]
+
+            # Undo B: give_back = min(carried, weight) = min(12, 12) = 12 → back to A
+            r = admin.post(f"{API}/packets/{b['id']}/undo-split", timeout=TIMEOUT)
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body["weight"] == b_weight_before, body
+            assert body["returned_to"] == a["packet_no"]
+
+            live2 = {p["packet_no"]: p for p in _packets(admin, sid)}
+            assert b["packet_no"] not in live2
+            assert c["packet_no"] in live2  # C unchanged
+            assert round(live2[c["packet_no"]]["weight"], 2) == 5.0
+            total = round(sum(float(p["weight"]) for p in live2.values()), 2)
+            assert total == 30.0, f"live total should equal stone weight, got {total}: {live2}"
+
+            rep = _stone(admin, sid)["report"]
+            assert rep["balanced"] is True, rep
+        finally:
+            admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+
 
 
 class TestUndoRowSpanningRoughAndStock:

@@ -1,0 +1,26 @@
+{
+  "summary": "Retest of undo-split fix confirms the HIGH bug from iteration_13 is closed. Full backend pytest suite = 98/98 passing (97 prior + 1 new TestPartialChainUndo). The exact repro (SP 30 ct → marking 30 → laser 30 → shape 30 → POST /packets/{laser}/undo-split) is now REFUSED with 400 'Packet is out with a karigar or its weight has already been cut into another packet'; the register still shows only the shape packet at 30 ct and the stone stays balanced. Partial-chain (A 30 → B 12 → C 5): undo of B returns exactly min(carried, weight) = 12 back to the source, C keeps its 5, total on the floor stays 30 and balance holds. All prior invariants also verified: normal leaf undo works and revives a source whose status was 'consumed'; undo refused for packets never split, packets with process entries, packets currently issued, and staff users (403). Availability pool rule regression (pool = un-packeted rough + ALL in-stock packets minus issued) still passes. UI smoke on preview URL confirms balance-bar, kapan-tab-*, sp-kapan-link-*, sp-stone-link-* render fine; no console errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_undo_split_edge.py",
+    "/app/backend/tests/test_split_from_stock.py",
+    "/app/backend/tests/test_sp_kapan.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter14_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "undo_packet_split now correctly gates on packet.status=='in_stock' (line 1026) — blocks undo of any packet already cut into a downstream split (status='consumed') or issued to a karigar. Message is user-friendly and covers both cases.",
+    "give_back = r2(min(carried_weight, current weight)) (line 1036) is the right formula: for a partially consumed intermediate it returns only what actually still sits in the packet, so material already cut out stays with the downstream packet and total on the floor is invariant.",
+    "Suggest a follow-up (non-blocking): create_process_packets still never mutates the source packet's carried_weight when consuming from stock. Now that undo is gated on status this is safe, but if a future feature ever un-consumes a source, carried_weight will still be stale — worth normalising eventually."
+  ],
+  "updated_files": ["/app/backend/tests/test_undo_split_edge.py"],
+  "success_rate": {"backend": "100% (98/98)", "frontend": "100%"},
+  "test_credentials": "admin@polki.com/admin123, staff@polki.com/staff123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "All test kapans/stones are created and deleted in the same test (finally blocks). No leftover TEST_ data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Fix for chained-split undo double-count is deployed and locked in by test_undo_split_edge.py::TestChainedSplitUndoMiddle (asserts 400 refusal + balance holds) and TestPartialChainUndo (asserts mass balance holds after undoing a partially-consumed intermediate). Full pytest = 98/98 in ~31s. Next agent should keep these tests; extend the module if new undo semantics appear.",
+  "rca of the issue": "Original bug: server.py::undo_packet_split blindly added packet.carried_weight to source regardless of whether the packet had been fully consumed by a downstream split. Fix (verified in place at server.py:1026-1038): (1) require packet.status == 'in_stock' (rejects consumed/issued packets with clear message); (2) give_back = min(carried_weight, current weight) — for partially-consumed intermediates only the weight that actually still sits in the packet flows back, so mass balance is preserved by construction."
+}
