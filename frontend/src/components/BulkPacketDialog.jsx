@@ -177,7 +177,8 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
             <Plus size={13} /> Add row
           </button>
           <div className={`text-xs ${over ? "font-semibold text-[#DC2626]" : "text-zinc-500"}`} data-testid="bulk-remaining">
-            Un-packeted left: <b className="tabular-nums">{ct(remaining)}</b> cts
+            Available to packet: <b className="tabular-nums">{ct(remaining)}</b> cts
+            <span className="text-zinc-400"> (un-packeted rough + stock)</span>
             {over && " — total exceeds this"}
           </div>
         </div>

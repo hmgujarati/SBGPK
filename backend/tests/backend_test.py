@@ -497,12 +497,13 @@ class TestBulkProcessPackets:
         assert rep["balanced"] is True and rep["difference"] == 0.0
 
     def test_over_remaining_rejected(self, admin, kapan):
-        rem = report(admin, kapan["id"])["report"]["unpacketed_weight"]
-        r = bulk(admin, kapan["id"], "marking", [{"pcs": 1, "weight": rem + 5}])
+        rep = report(admin, kapan["id"])["report"]
+        avail = rep["unpacketed_weight"] + rep["stock_weight"] + rep["polish_weight"]
+        r = bulk(admin, kapan["id"], "marking", [{"pcs": 1, "weight": avail + 1000}])
         assert r.status_code == 400, r.text
         detail = r.json()["detail"]
-        assert f"{rem:.2f}" in detail, detail
-        assert "remaining" in detail.lower()
+        assert "available" in detail.lower(), detail
+        assert "un-packeted" in detail.lower() and "in stock" in detail.lower(), detail
 
     def test_zero_weight_rows_and_bad_process(self, admin, kapan):
         r = bulk(admin, kapan["id"], "sarine", [{"pcs": 2, "weight": 0}])

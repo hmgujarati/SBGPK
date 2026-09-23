@@ -165,7 +165,7 @@ export default function KapanDetail() {
       </div>
 
       <BulkPacketDialog open={bulkOpen} onOpenChange={setBulkOpen} kapanId={id} process={tab}
-        remaining={p.unpacketed_weight} onDone={load} />
+        remaining={(p.unpacketed_weight || 0) + (p.stock_weight || 0) + (p.polish_weight || 0)} onDone={load} />
       <ReceiveDialog entry={receiving} onClose={() => setReceiving(null)} onDone={load} />
       <EditEntryDialog entry={editing} onClose={() => setEditing(null)} onDone={load} />
     </div>

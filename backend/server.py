@@ -399,8 +399,11 @@ async def build_reports(kapans: list) -> dict:
         a = acc.get(row["_id"]["k"])
         if not a:
             continue
-        a["packet_count"] += row["n"]
         a["packeted"] += r2(row["original"])
+        if row["_id"]["s"] == "consumed":
+            # split into new packets — its rough still counts as packeted, nothing else
+            continue
+        a["packet_count"] += row["n"]
         if row["_id"]["s"] == "issued":
             a["in_process_weight"] += r2(row["weight"])
             a["in_process_pcs"] += int(row["pcs"] or 0)
@@ -517,7 +520,7 @@ async def get_kapan(kapan_id: str, user: dict = Depends(get_current_user)):
     if not kapan:
         raise HTTPException(status_code=404, detail="Kapan not found")
     entries = await db.entries.find({"kapan_id": _id}).sort("created_at", 1).to_list(5000)
-    packets = await db.packets.find({"kapan_id": _id}).sort("seq", 1).to_list(2000)
+    packets = await db.packets.find({"kapan_id": _id, "status": {"$ne": "consumed"}}).sort("seq", 1).to_list(2000)
     pmap = {p["_id"]: p for p in packets}
     out = serialize(kapan)
     if kapan.get("parent_id"):
@@ -674,19 +677,54 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
         )
 
     existing = await db.packets.find({"kapan_id": _kid}).to_list(2000)
-    remaining = r2(r2(kapan.get("weight")) - r2(sum(r2(p.get("original_weight")) for p in existing)))
+    rough_left = r2(r2(kapan.get("weight")) - r2(sum(r2(p.get("original_weight")) for p in existing)))
+    # Packets can also be cut out of material already sitting in stock (fresh packets or ones
+    # back from a process), e.g. a 46.78 marking packet being split into two for shape cutting.
+    # That weight is consumed from the source packets so the kapan stays balanced.
+    stock_pool = sorted(
+        [p for p in existing if p.get("status") == "in_stock" and r2(p.get("weight")) > 0],
+        key=lambda p: int(p.get("seq") or 0),
+    )
+    stock_left = r2(sum(r2(p.get("weight")) for p in stock_pool))
+    budget = r2(rough_left + stock_left)
     total = r2(sum(r2(r.weight) for r in rows))
-    if total > remaining + 0.001:
+    if total > budget + 0.001:
         raise HTTPException(
             status_code=400,
-            detail=f"Total {total:.2f} cts exceeds the {remaining:.2f} cts remaining un-packeted in this kapan",
+            detail=f"Total {total:.2f} cts exceeds the {budget:.2f} cts available in this kapan "
+                   f"({rough_left:.2f} un-packeted + {stock_left:.2f} in stock)",
         )
+
+    # draw rough first, then eat into the stock packets in order
+    from_rough = r2(min(total, rough_left))
+    need = r2(total - from_rough)
+    consumed_from = None
+    for src in stock_pool:
+        if need <= 0.001:
+            break
+        take = r2(min(need, r2(src.get("weight"))))
+        left = r2(r2(src.get("weight")) - take)
+        src_pcs = int(src.get("pcs") or 0)
+        await db.packets.update_one(
+            {"_id": src["_id"]},
+            {"$set": {
+                "weight": left,
+                "pcs": src_pcs if left > 0 else 0,
+                "size": r2(left / src_pcs) if (left > 0 and src_pcs) else 0.0,
+                "status": "in_stock" if left > 0 else "consumed",
+            }},
+        )
+        consumed_from = consumed_from or src
+        need = r2(need - take)
 
     seq = max([int(p.get("seq") or 0) for p in existing], default=0)
     created = []
+    rough_budget = from_rough
     for row in rows:
         seq += 1
         weight, pcs = r2(row.weight), int(row.pcs or 0)
+        rough_part = r2(min(weight, rough_budget))
+        rough_budget = r2(rough_budget - rough_part)
         packet = {
             "kapan_id": _kid,
             "mode": "sp_stone" if is_stone else "normal",
@@ -698,14 +736,19 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
             "pcs": pcs,
             "weight": weight,
             "original_pcs": pcs,
-            "original_weight": weight,
+            # only the rough it consumed counts as "packeted" rough, so un-packeted stays right
+            "original_weight": rough_part,
+            "carried_weight": r2(weight - rough_part),
             "size": r2(weight / pcs) if pcs else 0.0,
             "status": "in_stock",
             "hw": (row.hw or "") if payload.process == "laser" else "",
             "ds": (row.ds or "") if payload.process == "polish" else "",
             "tops": int(row.tops or 0) if payload.process == "laser" else 0,
             "expected_return_pcs": int(row.expected_return_pcs or 0) if payload.process == "laser" else 0,
-            "last_process": None,
+            # split out of returned material? then it keeps that stage so it stays in the same
+            # weight bucket and can be issued to any process next
+            "last_process": consumed_from.get("last_process") if (weight > rough_part and consumed_from) else None,
+            "split_from": (consumed_from.get("packet_no") if (weight > rough_part and consumed_from) else None),
             "current_process": None,
             "notes": "",
             "created_at": now_utc(),
@@ -1021,6 +1064,15 @@ async def delete_packet(packet_id: str, user: dict = Depends(get_current_user)):
     _id = oid(packet_id)
     if await db.entries.count_documents({"packet_id": _id}):
         raise HTTPException(status_code=400, detail="Packet has process entries — delete those first")
+    packet = await db.packets.find_one({"_id": _id})
+    if not packet:
+        raise HTTPException(status_code=404, detail="Packet not found")
+    if r2(packet.get("carried_weight")) > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{packet.get('packet_no')} was split out of stock material — delete the packets "
+                   f"created with it in reverse order, or edit its weight instead",
+        )
     res = await db.packets.delete_one({"_id": _id})
     if not res.deleted_count:
         raise HTTPException(status_code=404, detail="Packet not found")

@@ -2,8 +2,7 @@
 import random
 
 import pytest
-
-from backend_test import API, TIMEOUT, login, receive  # noqa: F401
+from backend_test import API, TIMEOUT, login, receive
 
 
 @pytest.fixture(scope="module")
@@ -136,7 +135,7 @@ class TestSPStoneRegister:
     def test_packets_cannot_exceed_stone_weight(self, admin, stone):
         r = _bulk(admin, stone["stone"]["id"], "marking", [{"pcs": 1, "weight": 500.0}])
         assert r.status_code == 400
-        assert "remaining" in r.json()["detail"]
+        assert "available" in r.json()["detail"]
 
 
 class TestSPIssueReceive:
@@ -214,6 +213,38 @@ class TestSPIssueReceive:
                 r = _issue(admin, proc, [p["id"]])
                 assert r.status_code == 400, proc
                 assert "not part of the SP kapan flow" in r.json()["detail"]
+        finally:
+            admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+
+class TestSPStoneSplitFromStock:
+    def test_returned_packet_can_be_split_for_next_process(self, admin):
+        k = _new_sp_kapan(admin, weight=100.0)
+        try:
+            _add_stones(admin, k["id"], [46.78])
+            st = _sp_report(admin, k["id"])["stones"][0]
+            p = _bulk(admin, st["id"], "marking", [{"pcs": 1, "weight": 46.78}]).json()["created"][0]
+            e = _issue(admin, "marking", [p["id"]]).json()["entries"][0]
+            receive(admin, e["id"], return_pcs=1, return_weight=40.0, return_boil=40.0, rc=0.0, nail_rc=0.0)
+
+            rep = _sp_report(admin, k["id"])["stones"][0]["report"]
+            assert rep["unpacketed_weight"] == 0.0 and rep["stock_weight"] == 40.0
+
+            # split that 40.00 into two shape-cutting packets — un-packeted is 0 but stock is not
+            r = _bulk(admin, st["id"], "shape", [{"pcs": 1, "weight": 25.0}, {"pcs": 1, "weight": 15.0}])
+            assert r.status_code == 200, r.text
+            new = r.json()["created"]
+            assert [x["packet_no"] for x in new] == ["1.2", "1.3"]
+            assert all(x["last_process"] == "marking" for x in new)
+
+            after = _sp_report(admin, k["id"])["stones"][0]
+            assert after["report"]["stock_weight"] == 40.0        # nothing double counted
+            assert after["report"]["unpacketed_weight"] == 0.0
+            assert after["balanced"] is True
+
+            # over budget still refused
+            bad = _bulk(admin, st["id"], "ghat", [{"pcs": 1, "weight": 500.0}])
+            assert bad.status_code == 400 and "available" in bad.json()["detail"]
         finally:
             admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
 
