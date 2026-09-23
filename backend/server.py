@@ -527,7 +527,9 @@ async def get_kapan(kapan_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Kapan not found")
     entries = await db.entries.find({"kapan_id": _id}).sort("created_at", 1).to_list(5000)
     packets = await db.packets.find({"kapan_id": _id, "status": {"$ne": "consumed"}}).sort("seq", 1).to_list(2000)
-    pmap = {p["_id"]: p for p in packets}
+    # history rows must keep showing their packet name even after the packet was consumed
+    names = {p["_id"]: p.get("packet_no") for p in
+             await db.packets.find({"kapan_id": _id}, {"packet_no": 1}).to_list(2000)}
     out = serialize(kapan)
     if kapan.get("parent_id"):
         parent = await db.kapans.find_one({"_id": kapan["parent_id"]}) or {}
@@ -535,7 +537,7 @@ async def get_kapan(kapan_id: str, user: dict = Depends(get_current_user)):
     out["report"] = await build_report(_id, kapan)
     out["packets"] = [serialize(p) for p in packets]
     out["entries"] = [
-        {**serialize(e), "packet_no": (pmap.get(e.get("packet_id")) or {}).get("packet_no", "")}
+        {**serialize(e), "packet_no": names.get(e.get("packet_id"), "")}
         for e in entries
     ]
     return out

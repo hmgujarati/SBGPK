@@ -40,7 +40,7 @@ export default function KapanDetail() {
   const isStone = k.mode === "sp_stone";
   const tabs = isStone ? SP_PROCESS_ORDER : PROCESS_ORDER;
   const stockRows = (k.packets || [])
-    .filter((x) => x.process === tab && x.status !== "issued" && (!x.last_process || x.split_from))
+    .filter((x) => x.process === tab && x.status !== "issued" && x.stock_state !== "returned")
     .map((x) => ({ ...x, _isPacket: true, kapan_no: k.kapan_no }));
   const rows = [
     ...stockRows,

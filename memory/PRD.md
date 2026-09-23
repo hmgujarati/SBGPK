@@ -121,3 +121,7 @@ See /app/memory/test_credentials.md (admin@polki.com / admin123).
   - Backfill script: `backend/scripts/migrate_stock_state.py` (a packet is "returned" only if it has
     a returned entry). Already run on this DB.
   - Backend test suite: 98/98 passing.
+- 2026-06-23: **Register display fixes** — (1) jangad history rows keep their packet name after the
+  packet is consumed by a split (`GET /kapans/{id}` now resolves packet_no from all packets, not just
+  live ones); (2) an IN STOCK row is shown only for packets not yet issued (`stock_state !== "returned"`),
+  so a received packet no longer appears twice (stock row + its own history row).
