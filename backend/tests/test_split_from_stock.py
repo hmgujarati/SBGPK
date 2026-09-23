@@ -293,3 +293,38 @@ class TestReceiveAfterSplit:
             assert round(rep["stock_weight"], 2) == 38.0
         finally:
             admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+
+class TestStagePoolRule:
+    """Material already held by packets of the same stage is not available again."""
+
+    def test_stage_can_only_draw_from_other_stages(self, admin):
+        k = _new_sp_kapan(admin, weight=60.0)
+        try:
+            _add_stones(admin, k["id"], [30.0])
+            sid = _stone(admin, k["id"])["id"]
+
+            # all 30 goes into marking packets
+            r = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 30.0}])
+            assert r.status_code == 200, r.text
+            # marking has nothing left to draw from (its own stock does not count)
+            again = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 1.0}])
+            assert again.status_code == 400, again.text
+            assert "available for Marking" in again.json()["detail"]
+
+            # laser may draw from the marking stock
+            laser = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 12.0}])
+            assert laser.status_code == 200, laser.text
+            # and once laser holds 12 of its own, that 12 is no longer re-usable by laser,
+            # only the 18 still sitting in marking is
+            over = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 19.0}])
+            assert over.status_code == 400, over.text
+            assert "18.00" in over.json()["detail"]
+            ok = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 18.0}])
+            assert ok.status_code == 200, ok.text
+            # now everything sits in laser — nothing left anywhere
+            none_left = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 0.5}])
+            assert none_left.status_code == 400
+            assert _stone(admin, sid)["report"]["balanced"] is True
+        finally:
+            admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)

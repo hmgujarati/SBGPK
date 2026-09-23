@@ -678,11 +678,12 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
 
     existing = await db.packets.find({"kapan_id": _kid}).to_list(2000)
     rough_left = r2(r2(kapan.get("weight")) - r2(sum(r2(p.get("original_weight")) for p in existing)))
-    # Packets can also be cut out of material already sitting in stock (fresh packets or ones
-    # back from a process), e.g. a 46.78 marking packet being split into two for shape cutting.
-    # That weight is consumed from the source packets so the kapan stays balanced.
+    # Packets can also be cut out of material sitting in stock in ANOTHER stage — e.g. a packet
+    # back from marking being split into laser packets. Material already held by packets of this
+    # same process is not available again, so once a stage holds it all, nothing more can be made.
     stock_pool = sorted(
-        [p for p in existing if p.get("status") == "in_stock" and r2(p.get("weight")) > 0],
+        [p for p in existing
+         if p.get("status") == "in_stock" and r2(p.get("weight")) > 0 and p.get("process") != payload.process],
         key=lambda p: int(p.get("seq") or 0),
     )
     stock_left = r2(sum(r2(p.get("weight")) for p in stock_pool))
@@ -691,8 +692,9 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
     if total > budget + 0.001:
         raise HTTPException(
             status_code=400,
-            detail=f"Total {total:.2f} cts exceeds the {budget:.2f} cts available in this kapan "
-                   f"({rough_left:.2f} un-packeted + {stock_left:.2f} in stock)",
+            detail=f"Total {total:.2f} cts exceeds the {budget:.2f} cts available for "
+                   f"{PROCESS_LABELS.get(payload.process, payload.process)} "
+                   f"({rough_left:.2f} un-packeted + {stock_left:.2f} in stock in other stages)",
         )
 
     # draw rough first, then eat into the stock packets in order
