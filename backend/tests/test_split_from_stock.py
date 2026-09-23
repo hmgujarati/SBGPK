@@ -106,7 +106,8 @@ class TestSPPartialConsumptionAcrossSources:
             after = _stone(admin, k["id"])
             after_r = after["report"]
             assert after["balanced"] is True
-            assert after_r["stock_weight"] == 50.0    # unchanged, nothing double-counted
+            assert after_r["stock_weight"] == 15.0     # 35 moved into a locked packet
+            assert after_r["allocated_weight"] == 35.0
             assert after_r["unpacketed_weight"] == 0.0
             assert after_r["packeted_weight"] == 50.0
             assert after_r["difference"] == 0.0
@@ -153,8 +154,9 @@ class TestSPRowSpansRoughAndStock:
             assert after.get("balanced") is True or abs(after["report"]["difference"]) <= 0.02
             r2 = after["report"]
             assert r2["unpacketed_weight"] == 0.0
-            # stock = leftover of p1 (5) + new packet weight (25) since last_process=marking
-            assert r2["stock_weight"] == 30.0
+            # free stock = leftover of p1 (5); the new 25 packet is locked until issued
+            assert r2["stock_weight"] == 5.0
+            assert r2["allocated_weight"] == 25.0
             # packeted = rough allocated = 10 (p1) + 20 (new.original_weight) = 30
             assert r2["packeted_weight"] == 30.0
         finally:
@@ -235,7 +237,8 @@ class TestNormalKapanSplitFromStock:
             assert all(x["last_process"] == "marking" and x["split_from"] for x in new)
 
             r2 = _rep(admin, k["id"])
-            assert r2["stock_weight"] == 100.0     # unchanged
+            assert r2["stock_weight"] == 0.0       # all of it moved into locked packets
+            assert r2["allocated_weight"] == 100.0
             assert r2["unpacketed_weight"] == 0.0
             assert r2["balanced"] is True
             assert r2["difference"] == 0.0
@@ -332,26 +335,29 @@ class TestStagePoolRule:
             _add_stones(admin, k["id"], [30.0])
             sid = _stone(admin, k["id"])["id"]
 
-            # all 30 goes into one marking packet
+            # all 30 goes into one marking packet, then run it through so it is free stock
             r = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 30.0}])
             assert r.status_code == 200, r.text
+            src = r.json()["created"][0]
+            e = _issue_bulk(admin, "marking", [src["id"]]).json()["entries"][0]
+            receive(admin, e["id"], return_pcs=1, return_weight=30.0, return_boil=30.0, rc=0.0, nail_rc=0.0)
 
-            # laser can draw the whole 30 that sits in stock
+            # laser can draw from the 30 that sits in free stock
             laser = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 12.0}])
             assert laser.status_code == 200, laser.text
             assert laser.json()["created"][0]["split_from"] == "1.1"
 
-            # still 30 on the floor (12 in laser + 18 left in marking), so shape can take 30
-            shape = _bulk(admin, sid, "shape", [{"pcs": 1, "weight": 30.0}])
-            assert shape.status_code == 200, shape.text
-
-            # but never more than what is physically there
-            over = _bulk(admin, sid, "ghat", [{"pcs": 1, "weight": 30.5}])
+            # only the 18 still free in marking is drawable now (the 12 is locked in a packet)
+            over = _bulk(admin, sid, "ghat", [{"pcs": 1, "weight": 18.5}])
             assert over.status_code == 400, over.text
             assert "available" in over.json()["detail"]
 
+            shape = _bulk(admin, sid, "shape", [{"pcs": 1, "weight": 18.0}])
+            assert shape.status_code == 200, shape.text
+
             st = _stone(admin, sid)
-            assert st["report"]["stock_weight"] == 30.0
+            assert st["report"]["stock_weight"] == 0.0
+            assert st["report"]["allocated_weight"] == 30.0
             assert st["report"]["balanced"] is True
         finally:
             admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
@@ -364,6 +370,8 @@ class TestUndoSplit:
             _add_stones(admin, k["id"], [30.0])
             sid = _stone(admin, k["id"])["id"]
             src = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
+            e = _issue_bulk(admin, "marking", [src["id"]]).json()["entries"][0]
+            receive(admin, e["id"], return_pcs=1, return_weight=30.0, return_boil=30.0, rc=0.0, nail_rc=0.0)
             split = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 12.0}]).json()["created"][0]
 
             # plain delete is refused and points at Undo Split

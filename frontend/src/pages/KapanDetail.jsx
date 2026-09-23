@@ -120,7 +120,8 @@ export default function KapanDetail() {
       >
         <div className="flex flex-wrap gap-x-6 gap-y-1">
           <span>Un-packeted: <b className="tabular-nums" data-testid="rep-unpacketed">{ct(p.unpacketed_weight)}</b></span>
-          <span>Stock (pre-polish): <b className="tabular-nums">{ct(p.stock_weight)}</b></span>
+          <span>Stock (pre-polish): <b className="tabular-nums" data-testid="rep-stock">{ct(p.stock_weight)}</b></span>
+          <span>In packets (unissued): <b className="tabular-nums" data-testid="rep-allocated">{ct(p.allocated_weight)}</b></span>
           <span>Return Boil (total): <b className="tabular-nums">{ct(p.boil)}</b></span>
           <span>Nats Loss: <b className="tabular-nums">{ct(p.nats_loss)}</b></span>
           <span>Sarine / Marking Loss: <b className="tabular-nums" data-testid="rep-other-loss">{ct(p.other_loss)}</b></span>
@@ -180,7 +181,7 @@ export default function KapanDetail() {
         remaining={
           (p.unpacketed_weight || 0) +
           (k.packets || [])
-            .filter((x) => x.status === "in_stock")
+            .filter((x) => x.status === "in_stock" && x.stock_state !== "fresh")
             .reduce((a, x) => a + Number(x.weight || 0), 0)
         } onDone={load} />
       <ReceiveDialog entry={receiving} onClose={() => setReceiving(null)} onDone={load} />

@@ -101,7 +101,7 @@ Sidebar tab "SP Kapan" (`/sp-kapans`, `/sp-kapans/:id`).
   already cut into a downstream packet is refused), no process entries, and only
   `min(carried_weight, current weight)` is returned so chained splits can't double count.
   Button: `packet-undo-split-{packet_no}` in the process register.
-- Backend test suite: 69/69 passing (/app/backend/tests/backend_test.py)
+- Backend test suite: see latest entry below.
 
 ## Backlog
 - P1: Barcode scanning UX — scan a packet barcode to issue; scan on receive to open the receive popup
@@ -110,3 +110,14 @@ Sidebar tab "SP Kapan" (`/sp-kapans`, `/sp-kapans/:id`).
 
 ## Credentials
 See /app/memory/test_credentials.md (admin@polki.com / admin123).
+
+- 2026-06-23: **Packet weight is locked on creation (accountability fix)** — a packet created into a
+  process register gets `stock_state: "fresh"` and its weight is NO LONGER free stock: it cannot be
+  re-split by another process, and it leaves "Stock (pre-polish)". It becomes free stock again only
+  after it is issued and received back (`stock_state: "returned"`).
+  - Available (Add Packets dialog) = un-packeted rough + in-stock packets with `stock_state != "fresh"`.
+  - Report adds `allocated_weight` ("In packets (unissued)") and includes it in accounted weight, so
+    mass balance still holds. UI: `rep-stock` + `rep-allocated` on the kapan/stone balance bar.
+  - Backfill script: `backend/scripts/migrate_stock_state.py` (a packet is "returned" only if it has
+    a returned entry). Already run on this DB.
+  - Backend test suite: 98/98 passing.

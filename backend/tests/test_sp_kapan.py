@@ -238,7 +238,9 @@ class TestSPStoneSplitFromStock:
             assert all(x["last_process"] == "marking" for x in new)
 
             after = _sp_report(admin, k["id"])["stones"][0]
-            assert after["report"]["stock_weight"] == 40.0        # nothing double counted
+            # created-but-unissued packets are locked out of free stock
+            assert after["report"]["stock_weight"] == 0.0
+            assert after["report"]["allocated_weight"] == 40.0
             assert after["report"]["unpacketed_weight"] == 0.0
             assert after["balanced"] is True
 

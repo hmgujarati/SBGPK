@@ -363,7 +363,7 @@ async def build_reports(kapans: list) -> dict:
     pkt_rows = await db.packets.aggregate([
         {"$match": {"kapan_id": {"$in": ids}}},
         {"$group": {
-            "_id": {"k": "$kapan_id", "s": "$status", "lp": "$last_process"},
+            "_id": {"k": "$kapan_id", "s": "$status", "lp": "$last_process", "ss": "$stock_state"},
             "weight": {"$sum": "$weight"}, "original": {"$sum": "$original_weight"},
             "pcs": {"$sum": "$pcs"}, "n": {"$sum": 1},
         }},
@@ -374,7 +374,8 @@ async def build_reports(kapans: list) -> dict:
                     "polish_loss": 0.0, "nats_loss": 0.0, "other_loss": 0.0, "filling_gain": 0.0},
               "open": set(), "done": set(), "entries_count": 0,
               "in_process_weight": 0.0, "in_process_pcs": 0, "issued_count": 0,
-              "polish_weight": 0.0, "stock_weight": 0.0, "packeted": 0.0, "packet_count": 0}
+              "polish_weight": 0.0, "stock_weight": 0.0, "allocated_weight": 0.0,
+              "packeted": 0.0, "packet_count": 0}
         for kid in ids
     }
 
@@ -410,6 +411,9 @@ async def build_reports(kapans: list) -> dict:
             a["issued_count"] += row["n"]
         elif row["_id"]["lp"] in POLISHED:
             a["polish_weight"] += r2(row["weight"])
+        elif row["_id"].get("ss") == "fresh":
+            # packet created into a process register but not issued yet — locked, not free stock
+            a["allocated_weight"] += r2(row["weight"])
         else:
             a["stock_weight"] += r2(row["weight"])
 
@@ -422,7 +426,7 @@ async def build_reports(kapans: list) -> dict:
         accounted = r2(
             b["rc"] + b["nail_rc"] + b["laser_loss"] + b["shape_ghat_loss"] + b["polish_loss"]
             + b["nats_loss"] + b["other_loss"] + a["in_process_weight"] + a["polish_weight"]
-            + a["stock_weight"] + unpacketed - b["filling_gain"]
+            + a["stock_weight"] + a["allocated_weight"] + unpacketed - b["filling_gain"]
         )
         report = {k: r2(v) for k, v in b.items()}
         report.update({
@@ -431,6 +435,7 @@ async def build_reports(kapans: list) -> dict:
             "in_process_pcs": a["in_process_pcs"],
             "polish_weight": r2(a["polish_weight"]),
             "stock_weight": r2(a["stock_weight"]),
+            "allocated_weight": r2(a["allocated_weight"]),
             "packeted_weight": r2(a["packeted"]),
             "unpacketed_weight": unpacketed,
             "accounted_weight": accounted,
@@ -482,7 +487,8 @@ async def list_kapans(
     all_kapans = await db.kapans.find(query, {"weight": 1}).to_list(None)
     all_reports = await build_reports(all_kapans) if total else {}
     keys = ["rc", "nail_rc", "laser_loss", "shape_ghat_loss", "polish_loss",
-            "polish_weight", "in_process_weight", "stock_weight", "unpacketed_weight"]
+            "polish_weight", "in_process_weight", "stock_weight", "allocated_weight",
+            "unpacketed_weight"]
     totals = {k: r2(sum(rep.get(k, 0) for rep in all_reports.values())) for k in keys}
     totals["weight"] = r2(sum(r2(k.get("weight")) for k in all_kapans))
 
@@ -645,6 +651,7 @@ async def create_packet(kapan_id: str, payload: PacketCreate, user: dict = Depen
         "original_weight": weight,
         "size": r2(weight / payload.pcs) if payload.pcs else 0.0,
         "status": "in_stock",
+        "stock_state": "fresh",
         "last_process": None,
         "notes": payload.notes or "",
         "created_at": now_utc(),
@@ -681,8 +688,12 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
     # Weight that is back in stock (pre-polish) is fully available to any process, whichever
     # stage's packet is holding it. Creating packets consumes it from those source packets, so
     # the kapan always stays balanced.
+    # a packet already created into a process register (stock_state "fresh") holds its weight
+    # until it is issued and received back — it is NOT free stock any more
     stock_pool = sorted(
-        [p for p in existing if p.get("status") == "in_stock" and r2(p.get("weight")) > 0],
+        [p for p in existing
+         if p.get("status") == "in_stock" and r2(p.get("weight")) > 0
+         and p.get("stock_state") != "fresh"],
         key=lambda p: int(p.get("seq") or 0),
     )
     stock_left = r2(sum(r2(p.get("weight")) for p in stock_pool))
@@ -741,6 +752,7 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
             "carried_weight": r2(weight - rough_part),
             "size": r2(weight / pcs) if pcs else 0.0,
             "status": "in_stock",
+            "stock_state": "fresh",
             "hw": (row.hw or "") if payload.process == "laser" else "",
             "ds": (row.ds or "") if payload.process == "polish" else "",
             "tops": int(row.tops or 0) if payload.process == "laser" else 0,
@@ -825,8 +837,8 @@ async def sp_kapan_report(kapan_id: str, user: dict = Depends(get_current_user))
         original = r2(s.get("weight"))
         loss = r2(rep["laser_loss"] + rep["shape_ghat_loss"] + rep["polish_loss"]
                   + rep["nats_loss"] + rep["other_loss"])
-        live = r2(rep["stock_weight"] + rep["polish_weight"] + rep["in_process_weight"]
-                  + rep["unpacketed_weight"])
+        live = r2(rep["stock_weight"] + rep["allocated_weight"] + rep["polish_weight"]
+                  + rep["in_process_weight"] + rep["unpacketed_weight"])
         item = serialize(s)
         item.update({
             "report": rep,
@@ -1270,6 +1282,7 @@ async def receive_entry(entry_id: str, payload: EntryReturn, user: dict = Depend
         {"_id": entry["packet_id"]},
         {"$set": {
             "status": "in_stock",
+            "stock_state": "returned",
             "weight": net,
             "pcs": ret_pcs,
             "size": r2(net / ret_pcs) if ret_pcs else 0.0,
@@ -1354,6 +1367,8 @@ async def update_entry(entry_id: str, payload: EntryUpdate, user: dict = Depends
             {"_id": entry["packet_id"]},
             {"$set": {
                 "status": status,
+                "stock_state": ("returned" if entry.get("returned")
+                                else ("returned" if entry.get("prev_process") else "fresh")),
                 "pcs": pcs,
                 "weight": wt,
                 "size": r2(wt / pcs) if pcs else 0.0,
@@ -1382,6 +1397,7 @@ async def delete_entry(entry_id: str, user: dict = Depends(get_current_user)):
         {"_id": entry.get("packet_id")},
         {"$set": {
             "status": "in_stock",
+            "stock_state": "returned" if entry.get("prev_process") else "fresh",
             "weight": r2(entry.get("weight")),
             "pcs": int(entry.get("pcs") or 0),
             "size": r2(entry.get("size")),

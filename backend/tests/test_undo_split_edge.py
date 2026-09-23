@@ -42,6 +42,17 @@ def _packets(sess, kid):
     return sess.get(f"{API}/kapans/{kid}", timeout=TIMEOUT).json().get("packets", [])
 
 
+def _recycle(sess, process, p):
+    """Issue a freshly created packet and receive it back with no loss so its weight
+    becomes free stock again (created-but-unissued packets are locked)."""
+    e = sess.post(f"{API}/jangads", json={
+        "process": process, "date": "2026-07-04",
+        "packet_ids": [p["id"]], "karigar_name": "TEST_UNDO_K"}, timeout=TIMEOUT).json()["entries"][0]
+    w = float(p["weight"])
+    r = receive(sess, e["id"], return_pcs=1, return_weight=w, return_boil=w, rc=0.0, nail_rc=0.0)
+    assert r.status_code == 200, r.text
+
+
 @pytest.fixture(scope="module")
 def admin():
     return login("Admin")
@@ -58,6 +69,7 @@ class TestUndoAfterSourceFullyConsumed:
             sid = _stone(admin, k["id"])["id"]
 
             src = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
+            _recycle(admin, "marking", src)
             # take FULL 30 into laser — source becomes consumed
             split = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
 
@@ -94,7 +106,9 @@ class TestChainedSplitUndoMiddle:
             sid = _stone(admin, k["id"])["id"]
 
             src = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
+            _recycle(admin, "marking", src)
             b = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
+            _recycle(admin, "laser", b)
             c = _bulk(admin, sid, "shape", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
 
             # after chain: A consumed, B consumed, C alive with 30
@@ -106,7 +120,8 @@ class TestChainedSplitUndoMiddle:
             r = admin.post(f"{API}/packets/{b['id']}/undo-split", timeout=TIMEOUT)
             assert r.status_code == 400, r.text
             msg = (r.json().get("detail") or "").lower()
-            assert "karigar" in msg or "cut into another" in msg or "downstream" in msg, r.text
+            assert ("karigar" in msg or "cut into another" in msg or "downstream" in msg
+                    or "process entries" in msg), r.text
             rep = _stone(admin, sid)["report"]
             live2 = {p["packet_no"]: p for p in _packets(admin, sid)}
             assert c["packet_no"] in live2 and live2[c["packet_no"]]["weight"] == 30.0
@@ -129,6 +144,7 @@ class TestPartialChainUndo:
             sid = _stone(admin, k["id"])["id"]
 
             a = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
+            _recycle(admin, "marking", a)
             b = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 12.0}]).json()["created"][0]
             c = _bulk(admin, sid, "shape", [{"pcs": 1, "weight": 5.0}]).json()["created"][0]
 
@@ -175,6 +191,7 @@ class TestUndoRowSpanningRoughAndStock:
 
             # First make a 10-cts stock packet in marking
             p1 = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 10.0}]).json()["created"][0]
+            _recycle(admin, "marking", p1)
             # 25 cts row on sarine → 20 from rough, 5 carried from p1
             split = _bulk(admin, sid, "sarine", [{"pcs": 1, "weight": 25.0}]).json()["created"][0]
             assert round(split["carried_weight"], 2) == 5.0
@@ -207,7 +224,8 @@ class TestStaffCannotUndoSplit:
         try:
             _add_stone(admin, k["id"], 20.0)
             sid = _stone(admin, k["id"])["id"]
-            _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 20.0}])
+            src = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 20.0}]).json()["created"][0]
+            _recycle(admin, "marking", src)
             split = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 10.0}]).json()["created"][0]
             r = staff.post(f"{API}/packets/{split['id']}/undo-split", timeout=TIMEOUT)
             assert r.status_code in (401, 403), r.text
