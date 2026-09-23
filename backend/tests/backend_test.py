@@ -502,7 +502,7 @@ class TestBulkProcessPackets:
         r = bulk(admin, kapan["id"], "marking", [{"pcs": 1, "weight": avail + 1000}])
         assert r.status_code == 400, r.text
         detail = r.json()["detail"]
-        assert "available for" in detail.lower(), detail
+        assert "available" in detail.lower(), detail
         assert "un-packeted" in detail.lower() and "in stock" in detail.lower(), detail
 
     def test_zero_weight_rows_and_bad_process(self, admin, kapan):

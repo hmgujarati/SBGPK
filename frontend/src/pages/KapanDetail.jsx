@@ -40,7 +40,7 @@ export default function KapanDetail() {
   const isStone = k.mode === "sp_stone";
   const tabs = isStone ? SP_PROCESS_ORDER : PROCESS_ORDER;
   const stockRows = (k.packets || [])
-    .filter((x) => x.process === tab && x.status !== "issued" && !x.last_process)
+    .filter((x) => x.process === tab && x.status !== "issued" && (!x.last_process || x.split_from))
     .map((x) => ({ ...x, _isPacket: true, kapan_no: k.kapan_no }));
   const rows = [
     ...stockRows,
@@ -64,6 +64,18 @@ export default function KapanDetail() {
     try {
       await api.delete(`/packets/${pk.id}`);
       toast.success("Packet deleted");
+      load();
+    } catch (err) {
+      toast.error(apiError(err));
+    }
+  };
+
+  const undoSplit = async (pk) => {
+    if (!window.confirm(`Undo split of ${pk.packet_no}? Its ${Number(pk.weight || 0).toFixed(2)} cts go back into ${pk.split_from}.`))
+      return;
+    try {
+      const { data } = await api.post(`/packets/${pk.id}/undo-split`);
+      toast.success(`${data.weight} cts returned to ${data.returned_to}`);
       load();
     } catch (err) {
       toast.error(apiError(err));
@@ -161,14 +173,14 @@ export default function KapanDetail() {
           )}
         </div>
         <EntryTable rows={rows} onReceive={setReceiving} onDelete={removeEntry} onEdit={setEditing}
-          onDeletePacket={removePacket} showKapan={false} showSr />
+          onDeletePacket={removePacket} onUndoSplit={undoSplit} showKapan={false} showSr />
       </div>
 
       <BulkPacketDialog open={bulkOpen} onOpenChange={setBulkOpen} kapanId={id} process={tab}
         remaining={
           (p.unpacketed_weight || 0) +
           (k.packets || [])
-            .filter((x) => x.status === "in_stock" && x.process !== tab)
+            .filter((x) => x.status === "in_stock")
             .reduce((a, x) => a + Number(x.weight || 0), 0)
         } onDone={load} />
       <ReceiveDialog entry={receiving} onClose={() => setReceiving(null)} onDone={load} />

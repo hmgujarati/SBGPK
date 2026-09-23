@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, Trash, Printer, PencilSimple, Barcode } from "@phosphor-icons/react";
+import { Plus, Trash, Printer, PencilSimple, Barcode, ArrowUUpLeft } from "@phosphor-icons/react";
 import { api, apiError, ct } from "@/lib/api";
 import { PROCESS_LABELS } from "@/lib/processConfig";
 import { useAuth } from "@/context/AuthContext";
@@ -22,7 +22,7 @@ const TD = ({ children, right, cls = "" }) => (
   <td className={`border-r border-black/5 px-2.5 py-2 ${right ? "text-right tabular-nums" : ""} ${cls}`}>{children}</td>
 );
 
-export const EntryTable = ({ rows, onReceive, onDelete, onEdit, onDeletePacket, showKapan = true, showSr = false }) => {
+export const EntryTable = ({ rows, onReceive, onDelete, onEdit, onDeletePacket, onUndoSplit, showKapan = true, showSr = false }) => {
   const { can } = useAuth();
   if (!rows.length) return <Empty testid="entries-empty" text="No packets in this stage yet." />;
   return (
@@ -86,6 +86,13 @@ export const EntryTable = ({ rows, onReceive, onDelete, onEdit, onDeletePacket, 
                     className="mr-2 inline-block text-zinc-400 transition-colors hover:text-zinc-900">
                     <Printer size={14} />
                   </Link>
+                  {can("can_delete") && onUndoSplit && e.split_from && (
+                    <button data-testid={`packet-undo-split-${e.packet_no}`} onClick={() => onUndoSplit(e)}
+                      title={`Undo split — put this weight back into ${e.split_from}`}
+                      className="mr-2 text-zinc-400 transition-colors hover:text-zinc-900">
+                      <ArrowUUpLeft size={14} />
+                    </button>
+                  )}
                   {can("can_delete") && onDeletePacket && (
                     <button data-testid={`packet-delete-${e.packet_no}`} onClick={() => onDeletePacket(e)}
                       title="Delete packet and return its weight to the kapan"

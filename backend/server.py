@@ -678,12 +678,11 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
 
     existing = await db.packets.find({"kapan_id": _kid}).to_list(2000)
     rough_left = r2(r2(kapan.get("weight")) - r2(sum(r2(p.get("original_weight")) for p in existing)))
-    # Packets can also be cut out of material sitting in stock in ANOTHER stage — e.g. a packet
-    # back from marking being split into laser packets. Material already held by packets of this
-    # same process is not available again, so once a stage holds it all, nothing more can be made.
+    # Weight that is back in stock (pre-polish) is fully available to any process, whichever
+    # stage's packet is holding it. Creating packets consumes it from those source packets, so
+    # the kapan always stays balanced.
     stock_pool = sorted(
-        [p for p in existing
-         if p.get("status") == "in_stock" and r2(p.get("weight")) > 0 and p.get("process") != payload.process],
+        [p for p in existing if p.get("status") == "in_stock" and r2(p.get("weight")) > 0],
         key=lambda p: int(p.get("seq") or 0),
     )
     stock_left = r2(sum(r2(p.get("weight")) for p in stock_pool))
@@ -692,9 +691,8 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
     if total > budget + 0.001:
         raise HTTPException(
             status_code=400,
-            detail=f"Total {total:.2f} cts exceeds the {budget:.2f} cts available for "
-                   f"{PROCESS_LABELS.get(payload.process, payload.process)} "
-                   f"({rough_left:.2f} un-packeted + {stock_left:.2f} in stock in other stages)",
+            detail=f"Total {total:.2f} cts exceeds the {budget:.2f} cts available "
+                   f"({rough_left:.2f} un-packeted rough + {stock_left:.2f} in stock)",
         )
 
     # draw rough first, then eat into the stock packets in order
@@ -1015,6 +1013,37 @@ async def update_print_settings(payload: PrintSettings, user: dict = Depends(get
     return data
 
 
+@api.post("/packets/{packet_id}/undo-split")
+async def undo_packet_split(packet_id: str, user: dict = Depends(get_current_user)):
+    """Put a split packet's weight back into the packet it was cut from and remove it."""
+    require(user, "can_delete")
+    _id = oid(packet_id)
+    packet = await db.packets.find_one({"_id": _id})
+    if not packet:
+        raise HTTPException(status_code=404, detail="Packet not found")
+    if await db.entries.count_documents({"packet_id": _id}):
+        raise HTTPException(status_code=400, detail="Packet has process entries — delete those first")
+    if packet.get("status") == "issued":
+        raise HTTPException(status_code=400, detail="Packet is out with a karigar")
+    carried = r2(packet.get("carried_weight"))
+    if carried <= 0 or not packet.get("split_from"):
+        raise HTTPException(status_code=400, detail="This packet was not cut out of stock material")
+
+    source = await db.packets.find_one({"kapan_id": packet["kapan_id"], "packet_no": packet["split_from"]})
+    if not source:
+        raise HTTPException(status_code=400, detail=f"Source packet {packet['split_from']} no longer exists")
+    weight = r2(r2(source.get("weight")) + carried)
+    pcs = int(source.get("pcs") or 0) or int(source.get("original_pcs") or 1)
+    await db.packets.update_one(
+        {"_id": source["_id"]},
+        {"$set": {"status": "in_stock", "weight": weight, "pcs": pcs,
+                  "size": r2(weight / pcs) if pcs else 0.0}},
+    )
+    await db.packets.delete_one({"_id": _id})
+    return {"ok": True, "packet_no": packet.get("packet_no"), "returned_to": source.get("packet_no"),
+            "weight": carried}
+
+
 @api.get("/packets/lookup")
 async def lookup_packet(code: str = "", user: dict = Depends(get_current_user)):
     """Find a packet by its scanned 5-digit code (or full packet number)."""
@@ -1072,8 +1101,8 @@ async def delete_packet(packet_id: str, user: dict = Depends(get_current_user)):
     if r2(packet.get("carried_weight")) > 0:
         raise HTTPException(
             status_code=400,
-            detail=f"{packet.get('packet_no')} was split out of stock material — delete the packets "
-                   f"created with it in reverse order, or edit its weight instead",
+            detail=f"{packet.get('packet_no')} was cut out of stock material — use Undo Split to put "
+                   f"its weight back into {packet.get('split_from') or 'the source packet'}",
         )
     res = await db.packets.delete_one({"_id": _id})
     if not res.deleted_count:

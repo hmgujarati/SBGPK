@@ -182,7 +182,7 @@ class TestDeleteRulesAfterSplit:
             # DELETE the split packet — must be refused (carried_weight > 0)
             rd = admin.delete(f"{API}/packets/{split['id']}", timeout=TIMEOUT)
             assert rd.status_code == 400
-            assert "split out of stock" in rd.json()["detail"]
+            assert "cut out of stock" in rd.json()["detail"]
 
             # deleting the original marking packet is also blocked because it has entries
             rd2 = admin.delete(f"{API}/packets/{p['id']}", timeout=TIMEOUT)
@@ -324,35 +324,71 @@ class TestInProcessNotDrawable:
 
 
 class TestStagePoolRule:
-    """Material already held by packets of the same stage is not available again."""
+    """Stock (pre-polish) is fully available to any process, whichever stage holds it."""
 
-    def test_stage_can_only_draw_from_other_stages(self, admin):
+    def test_stock_is_available_to_every_stage(self, admin):
         k = _new_sp_kapan(admin, weight=60.0)
         try:
             _add_stones(admin, k["id"], [30.0])
             sid = _stone(admin, k["id"])["id"]
 
-            # all 30 goes into marking packets
+            # all 30 goes into one marking packet
             r = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 30.0}])
             assert r.status_code == 200, r.text
-            # marking has nothing left to draw from (its own stock does not count)
-            again = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 1.0}])
-            assert again.status_code == 400, again.text
-            assert "available for Marking" in again.json()["detail"]
 
-            # laser may draw from the marking stock
+            # laser can draw the whole 30 that sits in stock
             laser = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 12.0}])
             assert laser.status_code == 200, laser.text
-            # and once laser holds 12 of its own, that 12 is no longer re-usable by laser,
-            # only the 18 still sitting in marking is
-            over = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 19.0}])
+            assert laser.json()["created"][0]["split_from"] == "1.1"
+
+            # still 30 on the floor (12 in laser + 18 left in marking), so shape can take 30
+            shape = _bulk(admin, sid, "shape", [{"pcs": 1, "weight": 30.0}])
+            assert shape.status_code == 200, shape.text
+
+            # but never more than what is physically there
+            over = _bulk(admin, sid, "ghat", [{"pcs": 1, "weight": 30.5}])
             assert over.status_code == 400, over.text
-            assert "18.00" in over.json()["detail"]
-            ok = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 18.0}])
-            assert ok.status_code == 200, ok.text
-            # now everything sits in laser — nothing left anywhere
-            none_left = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 0.5}])
-            assert none_left.status_code == 400
+            assert "available" in over.json()["detail"]
+
+            st = _stone(admin, sid)
+            assert st["report"]["stock_weight"] == 30.0
+            assert st["report"]["balanced"] is True
+        finally:
+            admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+
+class TestUndoSplit:
+    def test_undo_split_returns_weight_to_source(self, admin):
+        k = _new_sp_kapan(admin, weight=60.0)
+        try:
+            _add_stones(admin, k["id"], [30.0])
+            sid = _stone(admin, k["id"])["id"]
+            src = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
+            split = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 12.0}]).json()["created"][0]
+
+            # plain delete is refused and points at Undo Split
+            bad = admin.delete(f"{API}/packets/{split['id']}", timeout=TIMEOUT)
+            assert bad.status_code == 400 and "Undo Split" in bad.json()["detail"]
+
+            r = admin.post(f"{API}/packets/{split['id']}/undo-split", timeout=TIMEOUT)
+            assert r.status_code == 200, r.text
+            assert r.json()["returned_to"] == src["packet_no"] and r.json()["weight"] == 12.0
+
+            pk = {p["packet_no"]: p for p in _reg_packets(admin, sid)}
+            assert split["packet_no"] not in pk
+            assert pk[src["packet_no"]]["weight"] == 30.0
             assert _stone(admin, sid)["report"]["balanced"] is True
+        finally:
+            admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
+    def test_undo_split_rejected_for_plain_packet(self, admin):
+        k = _new_sp_kapan(admin, weight=40.0)
+        try:
+            _add_stones(admin, k["id"], [20.0])
+            sid = _stone(admin, k["id"])["id"]
+            p = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 20.0}]).json()["created"][0]
+            r = admin.post(f"{API}/packets/{p['id']}/undo-split", timeout=TIMEOUT)
+            assert r.status_code == 400
+            assert "not cut out of stock" in r.json()["detail"]
         finally:
             admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
