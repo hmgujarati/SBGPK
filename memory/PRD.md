@@ -144,3 +144,9 @@ See /app/memory/test_credentials.md (admin@polki.com / admin123).
   button is always reachable. Every pcs-style input (pcs, return pcs, tops, exp. ret pcs, kapan pcs)
   is now `type=text inputMode=numeric` with `int0()` digit-only filtering: no decimals, and the
   scroll wheel can no longer change the value — typing only.
+- 2026-06-23: **Arrow-key data entry** (`frontend/src/lib/gridNav.js`) — Up/Down and Enter move
+  between rows, Left/Right between columns (only once the caret reaches the edge of the text, so
+  normal editing still works), and the landed field's value is auto-selected for quick overwrite.
+  Wired into the Add Stones list, the Add Packets grid (pcs -> weight -> H/W -> tops -> exp ret / D/S)
+  and the Receive + Edit Entry dialogs. Markup contract: `data-nav-grid` + `onKeyDown={navKeyDown}`
+  on the container, `data-nav-row` / `data-nav-col` on each input.

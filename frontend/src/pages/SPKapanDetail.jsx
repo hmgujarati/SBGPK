@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Trash } from "@phosphor-icons/react";
 import { api, apiError, ct, dec2, today } from "@/lib/api";
+import { navKeyDown } from "@/lib/gridNav";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader, Stat } from "@/components/Bits";
 import { Button } from "@/components/ui/button";
@@ -175,12 +176,12 @@ export default function SPKapanDetail() {
             <Input data-testid="sp-stones-date" type="date" value={date} onChange={(e) => setDate(e.target.value)}
               className="mt-1 h-10 rounded-none border-black/15" />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2" data-nav-grid onKeyDown={navKeyDown}>
             {rows.map((r, i) => (
               <div key={i} className="flex items-center gap-2">
                 <span className="w-6 text-xs text-zinc-400">{i + 1}</span>
                 <Input data-testid={`sp-stone-weight-${i}`} type="text" inputMode="decimal" value={r.weight}
-                  placeholder="46.78"
+                  placeholder="46.78" data-nav-row={i} data-nav-col={0}
                   onChange={(e) => setRows((rs) => rs.map((x, y) => (y === i ? { weight: dec2(e.target.value) } : x)))}
                   className="h-9 rounded-none border-black/15 tabular-nums" />
               </div>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash } from "@phosphor-icons/react";
 import { api, apiError, ct, dec2, int0, pcsInput, today } from "@/lib/api";
+import { navKeyDown } from "@/lib/gridNav";
 import { PROCESS_LABELS } from "@/lib/processConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,7 +89,8 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
         </div>
 
         <div className="max-h-[45vh] overflow-auto border border-black/10">
-          <table className="w-full border-collapse text-xs" data-testid="bulk-rows-table">
+          <table className="w-full border-collapse text-xs" data-testid="bulk-rows-table"
+            data-nav-grid onKeyDown={navKeyDown}>
             <thead className="sticky top-0">
               <tr className="bg-zinc-900 text-white">
                 <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">#</th>
@@ -116,10 +118,12 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
                     <td className="px-2 py-1.5 text-zinc-400">{i + 1}</td>
                     <td className="px-2 py-1.5">
                       <Input data-testid={`bulk-pcs-${i}`} {...pcsInput} value={r.pcs}
+                        data-nav-row={i} data-nav-col={0}
                         onChange={(e) => setRow(i, { pcs: int0(e.target.value) })} className={`${cell} w-24`} />
                     </td>
                     <td className="px-2 py-1.5">
                       <Input data-testid={`bulk-weight-${i}`} type="text" inputMode="decimal" value={r.weight}
+                        data-nav-row={i} data-nav-col={1}
                         onChange={(e) => setRow(i, { weight: dec2(e.target.value) })} className={`${cell} w-28`} />
                     </td>
                     <td className="px-2 py-1.5 tabular-nums text-zinc-500" data-testid={`bulk-size-${i}`}>{size}</td>
@@ -127,14 +131,17 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
                       <>
                         <td className="px-2 py-1.5">
                           <Input data-testid={`bulk-hw-${i}`} type="text" value={r.hw || ""}
+                            data-nav-row={i} data-nav-col={2}
                             onChange={(e) => setRow(i, { hw: e.target.value })} className={`${cell} w-24`} />
                         </td>
                         <td className="px-2 py-1.5">
                           <Input data-testid={`bulk-tops-${i}`} {...pcsInput} value={r.tops ?? ""}
+                            data-nav-row={i} data-nav-col={3}
                             onChange={(e) => setRow(i, { tops: int0(e.target.value) })} className={`${cell} w-20`} />
                         </td>
                         <td className="px-2 py-1.5">
                           <Input data-testid={`bulk-exp-ret-${i}`} {...pcsInput} value={r.expected_return_pcs ?? ""}
+                            data-nav-row={i} data-nav-col={4}
                             onChange={(e) => setRow(i, { expected_return_pcs: int0(e.target.value) })} className={`${cell} w-24`} />
                         </td>
                       </>
@@ -142,6 +149,7 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
                     {isPolish && (
                       <td className="px-2 py-1.5">
                         <select data-testid={`bulk-ds-${i}`} value={r.ds || "Double"}
+                          data-nav-row={i} data-nav-col={2}
                           onChange={(e) => setRow(i, { ds: e.target.value })}
                           className="h-9 w-28 border border-black/15 bg-white px-2 text-xs">
                           <option value="Double">Double</option>

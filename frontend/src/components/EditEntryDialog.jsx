@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api, apiError, ct, dec2, int0, pcsInput } from "@/lib/api";
+import { navKeyDown } from "@/lib/gridNav";
 import { PROCESS_CONFIG, PROCESS_LABELS, computeReturn } from "@/lib/processConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -105,35 +106,42 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
         </DialogHeader>
 
         <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Issue</div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4" data-nav-grid onKeyDown={navKeyDown}>
           <Field label="Date">
             <Input data-testid="edit-date-input" type="date" value={v.date || ""}
+              data-nav-row={0} data-nav-col={0}
               onChange={(e) => setV({ ...v, date: e.target.value })} className={inp} />
           </Field>
           <Field label="Karigar">
             <Input data-testid="edit-karigar-input" value={v.karigar_name || ""}
+              data-nav-row={1} data-nav-col={0}
               onChange={(e) => setV({ ...v, karigar_name: e.target.value })} className={inp} />
           </Field>
           <Field label="Issue Pcs">
             <Input data-testid="edit-pcs-input" {...pcsInput} value={v.pcs ?? ""}
+              data-nav-row={2} data-nav-col={0}
               onChange={(e) => setV({ ...v, pcs: int0(e.target.value) })} className={inp} />
           </Field>
           <Field label="Issue Weight">
             <Input data-testid="edit-weight-input" type="text" inputMode="decimal" value={v.weight ?? ""}
+              data-nav-row={3} data-nav-col={0}
               onChange={(e) => setV({ ...v, weight: dec2(e.target.value) })} className={inp} />
           </Field>
           {process === "laser" && (
             <>
               <Field label="H / W">
                 <Input data-testid="edit-hw-input" value={v.hw || ""}
+                  data-nav-row={4} data-nav-col={0}
                   onChange={(e) => setV({ ...v, hw: e.target.value })} className={inp} />
               </Field>
               <Field label="Tops">
                 <Input data-testid="edit-tops-input" {...pcsInput} value={v.tops ?? ""}
+                  data-nav-row={5} data-nav-col={0}
                   onChange={(e) => setV({ ...v, tops: int0(e.target.value) })} className={inp} />
               </Field>
               <Field label="Exp. Ret Pcs">
                 <Input data-testid="edit-exp-pcs-input" {...pcsInput} value={v.expected_return_pcs ?? ""}
+                  data-nav-row={6} data-nav-col={0}
                   onChange={(e) => setV({ ...v, expected_return_pcs: int0(e.target.value) })} className={inp} />
               </Field>
             </>
@@ -143,24 +151,28 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
         {entry.returned && (
           <>
             <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Return</div>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4" data-nav-grid onKeyDown={navKeyDown}>
               <Field label="Return Date">
                 <Input data-testid="edit-return-date-input" type="date" value={v.return_date || ""}
+                  data-nav-row={0} data-nav-col={0}
                   onChange={(e) => setV({ ...v, return_date: e.target.value })} className={inp} />
               </Field>
               <Field label="Return Pcs">
                 <Input data-testid="edit-return-pcs-input" {...pcsInput} value={v.return_pcs ?? ""}
+                  data-nav-row={1} data-nav-col={0}
                   onChange={(e) => setV({ ...v, return_pcs: int0(e.target.value) })} className={inp} />
               </Field>
               <Field label="Return Weight">
                 <Input data-testid="edit-return-weight-input" type="text" inputMode="decimal" value={v.return_weight ?? ""}
+                  data-nav-row={2} data-nav-col={0}
                   onChange={(e) => setV({ ...v, return_weight: dec2(e.target.value) })} className={inp} />
               </Field>
-              {cfg.ret.map((f) => (
+              {cfg.ret.map((f, i) => (
                 <Field key={f.key} label={f.label}>
                   <Input data-testid={`edit-${f.key}-input`}
                     type={f.step ? "text" : f.type}
                     inputMode={f.step ? "decimal" : undefined}
+                    data-nav-row={3 + i} data-nav-col={0}
                     value={v[f.key] ?? ""}
                     onChange={(e) => setV({ ...v, [f.key]: f.step ? dec2(e.target.value) : e.target.value })}
                     className={inp} />

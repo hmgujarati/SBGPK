@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api, apiError, ct, dec2, int0, pcsInput } from "@/lib/api";
+import { navKeyDown } from "@/lib/gridNav";
 import { PROCESS_CONFIG, PROCESS_LABELS, computeReturn } from "@/lib/processConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,24 +97,28 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
           <div><span className="text-zinc-500">Issued Wt</span><div className="font-semibold tabular-nums">{ct(entry.weight)} ct</div></div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4" data-nav-grid onKeyDown={navKeyDown}>
           <Field label="Return Date">
             <Input data-testid="receive-date-input" type="date" value={v.return_date || ""}
+              data-nav-row={0} data-nav-col={0}
               onChange={(e) => setV({ ...v, return_date: e.target.value })} className={inp} />
           </Field>
           <Field label="Return Pcs">
             <Input data-testid="receive-pcs-input" {...pcsInput} value={v.return_pcs ?? ""}
+              data-nav-row={1} data-nav-col={0}
               onChange={(e) => setV({ ...v, return_pcs: int0(e.target.value) })} className={inp} />
           </Field>
           <Field label="Return Weight">
             <Input data-testid="receive-return_weight-input" type="text" inputMode="decimal" value={v.return_weight ?? ""}
+              data-nav-row={2} data-nav-col={0}
               onChange={(e) => setV({ ...v, return_weight: dec2(e.target.value) })} className={inp} />
           </Field>
-          {cfg.ret.map((f) => (
+          {cfg.ret.map((f, i) => (
             <Field key={f.key} label={f.label}>
               <Input data-testid={`receive-${f.key}-input`}
                 type={f.step ? "text" : f.type}
                 inputMode={f.step ? "decimal" : undefined}
+                data-nav-row={3 + i} data-nav-col={0}
                 value={v[f.key] ?? ""}
                 onChange={(e) => setV({ ...v, [f.key]: f.step ? dec2(e.target.value) : e.target.value })}
                 className={inp} />
