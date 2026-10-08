@@ -90,7 +90,7 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
 
         <div className="max-h-[45vh] overflow-auto border border-black/10">
           <table className="w-full border-collapse text-xs" data-testid="bulk-rows-table"
-            data-nav-grid onKeyDown={navKeyDown}>
+            data-nav-grid onKeyDown={(e) => navKeyDown(e, () => setRows((rs) => [...rs, emptyRow()]))}>
             <thead className="sticky top-0">
               <tr className="bg-zinc-900 text-white">
                 <th className="px-2 py-2 text-left font-semibold uppercase tracking-wider">#</th>

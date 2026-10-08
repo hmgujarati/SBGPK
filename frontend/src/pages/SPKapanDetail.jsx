@@ -176,7 +176,8 @@ export default function SPKapanDetail() {
             <Input data-testid="sp-stones-date" type="date" value={date} onChange={(e) => setDate(e.target.value)}
               className="mt-1 h-10 rounded-none border-black/15" />
           </div>
-          <div className="space-y-2" data-nav-grid onKeyDown={navKeyDown}>
+          <div className="space-y-2" data-nav-grid
+            onKeyDown={(e) => navKeyDown(e, () => setRows((rs) => [...rs, emptyRow()]))}>
             {rows.map((r, i) => (
               <div key={i} className="flex items-center gap-2">
                 <span className="w-6 text-xs text-zinc-400">{i + 1}</span>

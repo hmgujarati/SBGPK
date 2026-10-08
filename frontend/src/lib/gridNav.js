@@ -14,7 +14,7 @@ const focus = (el) => {
   }
 };
 
-export const navKeyDown = (e) => {
+export const navKeyDown = (e, onExtend) => {
   if (!KEYS.includes(e.key) || e.altKey || e.ctrlKey || e.metaKey) return;
   const el = e.target;
   const grid = el.closest?.("[data-nav-grid]");
@@ -43,6 +43,18 @@ export const navKeyDown = (e) => {
   if (!next && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
     const i = cells.indexOf(el);
     next = cells[e.key === "ArrowRight" ? i + 1 : i - 1];
+  }
+  // past the last row — grow the grid and land on the fresh row
+  if (!next && onExtend && (e.key === "ArrowDown" || e.key === "Enter" || e.key === "ArrowRight")) {
+    e.preventDefault();
+    onExtend();
+    setTimeout(() => {
+      const fresh = [...grid.querySelectorAll("[data-nav-row][data-nav-col]")].find(
+        (x) => Number(x.dataset.navRow) === row + 1 && Number(x.dataset.navCol) === 0
+      );
+      if (fresh) focus(fresh);
+    }, 0);
+    return;
   }
   if (!next) return;
   e.preventDefault();

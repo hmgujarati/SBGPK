@@ -150,3 +150,6 @@ See /app/memory/test_credentials.md (admin@polki.com / admin123).
   Wired into the Add Stones list, the Add Packets grid (pcs -> weight -> H/W -> tops -> exp ret / D/S)
   and the Receive + Edit Entry dialogs. Markup contract: `data-nav-grid` + `onKeyDown={navKeyDown}`
   on the container, `data-nav-row` / `data-nav-col` on each input.
+- 2026-06-23: Auto-grow rows — pressing Down / Enter (or Right off the last cell) on the last row of
+  the Add Stones list or any Add Packets grid appends a fresh row and focuses it, so long data entry
+  never needs the mouse. `navKeyDown(e, onExtend)` takes the row-adding callback.
