@@ -1,0 +1,25 @@
+{
+  "summary": "Frontend-only end-to-end validation of the Palchu feature on SP Kapan stone detail. Created a fresh SP Kapan (TPL33513) with one 20ct stone, created a Laser packet (2pcs/10ct), issued it to a manual karigar, received it with Palchu=1.00 (boil 8 / RC 0.5 / Nail RC 0.5 / Palchu 1 → Net=6.00 as computed in `calc-net-weight`). Validation path (RC+NailRC+Palchu > Return Boil) correctly surfaced the `receive-warning` containing the phrase 'RC + Nail RC + Palchu' and disabled the submit button. After receiving, the stone balance bar `rep-palchu` showed 1.00, the PALCHU column was rendered in the register, and status stayed BALANCED. BulkPacketDialog opened from SHAPE / GHAT / POLISH tabs correctly showed the hint 'Palchu recovered on returns' with Available = 1.00 cts. Creating a 0.50 ct polish packet from the palchu pool succeeded and `rep-palchu` dropped to 0.50. Attempting to create a packet with weight > palchu correctly disabled `bulk-save-button` and showed 'total exceeds this'. The edit entry dialog exposed `edit-palchu-input` with current value 1 and saved successfully. Mobile smoke check at 390px — stone page renders, balance-bar visible, palchu value 0.50 displayed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Several Dialogs (SP Kapan, SP Stones, BulkPacketDialog, ReceiveDialog, IssueDialog)", "issues": ["React warning: Missing `Description` or `aria-describedby={undefined}` for DialogContent — add DialogDescription for a11y (non-blocking)"]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "A11y: Radix DialogContent components lack DialogDescription — add for every dialog to silence console warnings and improve screen reader support.",
+    "No cleanup endpoint used — ensure the SP Kapan TPL33513 (and any orphan TPL33406) created during testing can be deleted by the main agent/user through SP Kapan page."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100%"},
+  "test_credentials": "admin@polki.com / admin123",
+  "seed_data_creation": "Created SP Kapan TPL33513 (and an earlier TPL33406 from a prior aborted run) with one 20ct stone each. Did not delete. User may remove via SP Kapan UI if desired.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 8 Palchu UI behaviours in the review request were verified green: balance-bar testids, laser hint text, Palchu input on receive, calc-net-weight = boil - rc - nail_rc - palchu, over-boil validation + submit lock, palchu persistence + PALCHU column + BALANCED, Palchu-recovered hint across shape/ghat/polish tabs, palchu-only pool drain for polish packet creation and over-palchu block, edit-palchu-input in EditEntryDialog, and 390px mobile smoke. Route for packet issue is /issue and receive is /receive (NOT /packet-issue, /packet-receive).",
+  "rca of the issue": "N/A — no bugs found."
+}

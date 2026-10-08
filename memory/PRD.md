@@ -128,3 +128,14 @@ See /app/memory/test_credentials.md (admin@polki.com / admin123).
 - 2026-06-23: Duplicate-row fix made DB-agnostic — the stock row is also suppressed when the packet
   already has jangad history (`entries.packet_id`), and `startup()` backfills `stock_state` on any
   in-stock packet missing it, so older/production databases self-heal on the next restart.
+- 2026-06-23: **Palchu** — new field captured on packet receive alongside RC / Nail RC.
+  `Net Fwd = Return Boil − RC − Nail RC − Palchu`, and `RC + Nail RC + Palchu <= Boil` is enforced.
+  Palchu accumulates into a per-kapan / per-stone pool: report exposes `palchu` (total),
+  `palchu_used` and `palchu_available`; accounted weight uses `palchu_available` so balance holds.
+  **Shape Cutting, Ghat, Polish and Table Polish packets are created ONLY from the Palchu pool**
+  (`PALCHU_PROCESSES`, packet field `palchu_weight`, `original_weight`/`carried_weight` stay 0);
+  Marking / Sarine / Laser Sawing still draw un-packeted rough + pre-polish stock. Deleting a
+  Palchu packet returns its weight to the pool. UI: Palchu input in Receive + Edit dialogs, PALCHU
+  column in every register, "Palchu (available)" on the balance bar (`rep-palchu`), and the Add
+  Packets dialog shows "Available: N cts (Palchu recovered on returns)" on those four tabs.
+  Tests: /app/backend/tests/test_palchu.py — suite now 102/102 passing.
