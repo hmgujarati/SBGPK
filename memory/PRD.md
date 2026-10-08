@@ -139,3 +139,8 @@ See /app/memory/test_credentials.md (admin@polki.com / admin123).
   column in every register, "Palchu (available)" on the balance bar (`rep-palchu`), and the Add
   Packets dialog shows "Available: N cts (Palchu recovered on returns)" on those four tabs.
   Tests: /app/backend/tests/test_palchu.py — suite now 102/102 passing.
+- 2026-06-23: **Dialog scrolling + whole-number pcs** — Add Stones, Add Packets, Receive and Edit
+  dialogs are capped at 85-90vh with `overflow-y-auto`, so 10+ rows stay scrollable and the save
+  button is always reachable. Every pcs-style input (pcs, return pcs, tops, exp. ret pcs, kapan pcs)
+  is now `type=text inputMode=numeric` with `int0()` digit-only filtering: no decimals, and the
+  scroll wheel can no longer change the value — typing only.

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash } from "@phosphor-icons/react";
-import { api, apiError, ct, dec2, today } from "@/lib/api";
+import { api, apiError, ct, dec2, int0, pcsInput, today } from "@/lib/api";
 import { PROCESS_LABELS } from "@/lib/processConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,7 +72,7 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl rounded-none" data-testid="bulk-packet-dialog">
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto rounded-none" data-testid="bulk-packet-dialog">
         <DialogHeader>
           <DialogTitle className="font-heading uppercase tracking-wide">
             Add Packets — {PROCESS_LABELS[process]}
@@ -115,8 +115,8 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
                   <tr key={i} className="border-b border-black/5" data-testid={`bulk-row-${i}`}>
                     <td className="px-2 py-1.5 text-zinc-400">{i + 1}</td>
                     <td className="px-2 py-1.5">
-                      <Input data-testid={`bulk-pcs-${i}`} type="number" value={r.pcs}
-                        onChange={(e) => setRow(i, { pcs: e.target.value })} className={`${cell} w-24`} />
+                      <Input data-testid={`bulk-pcs-${i}`} {...pcsInput} value={r.pcs}
+                        onChange={(e) => setRow(i, { pcs: int0(e.target.value) })} className={`${cell} w-24`} />
                     </td>
                     <td className="px-2 py-1.5">
                       <Input data-testid={`bulk-weight-${i}`} type="text" inputMode="decimal" value={r.weight}
@@ -130,12 +130,12 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
                             onChange={(e) => setRow(i, { hw: e.target.value })} className={`${cell} w-24`} />
                         </td>
                         <td className="px-2 py-1.5">
-                          <Input data-testid={`bulk-tops-${i}`} type="number" value={r.tops ?? ""}
-                            onChange={(e) => setRow(i, { tops: e.target.value })} className={`${cell} w-20`} />
+                          <Input data-testid={`bulk-tops-${i}`} {...pcsInput} value={r.tops ?? ""}
+                            onChange={(e) => setRow(i, { tops: int0(e.target.value) })} className={`${cell} w-20`} />
                         </td>
                         <td className="px-2 py-1.5">
-                          <Input data-testid={`bulk-exp-ret-${i}`} type="number" value={r.expected_return_pcs ?? ""}
-                            onChange={(e) => setRow(i, { expected_return_pcs: e.target.value })} className={`${cell} w-24`} />
+                          <Input data-testid={`bulk-exp-ret-${i}`} {...pcsInput} value={r.expected_return_pcs ?? ""}
+                            onChange={(e) => setRow(i, { expected_return_pcs: int0(e.target.value) })} className={`${cell} w-24`} />
                         </td>
                       </>
                     )}

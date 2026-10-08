@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Plus, MagnifyingGlass, Trash } from "@phosphor-icons/react";
-import { api, apiError, ct, dec2, today } from "@/lib/api";
+import { api, apiError, ct, dec2, int0, pcsInput, today } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader, Empty, Pager } from "@/components/Bits";
 import { Button } from "@/components/ui/button";
@@ -141,8 +141,8 @@ export default function Kapans() {
                 </div>
                 <div>
                   <Label className="text-xs uppercase tracking-wider">Pcs</Label>
-                  <Input data-testid="kapan-pcs-input" type="number" value={form.pcs}
-                    onChange={(e) => setForm({ ...form, pcs: e.target.value })}
+                  <Input data-testid="kapan-pcs-input" {...pcsInput} value={form.pcs}
+                    onChange={(e) => setForm({ ...form, pcs: int0(e.target.value) })}
                     className="mt-1 h-10 rounded-none border-black/15 tabular-nums" />
                 </div>
                 <div>

@@ -166,7 +166,7 @@ export default function SPKapanDetail() {
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg rounded-none" data-testid="sp-stones-dialog">
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto rounded-none" data-testid="sp-stones-dialog">
           <DialogHeader>
             <DialogTitle className="font-heading uppercase tracking-wide">Add Stones — one packet each</DialogTitle>
           </DialogHeader>

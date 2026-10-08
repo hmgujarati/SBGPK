@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { api, apiError, ct, dec2 } from "@/lib/api";
+import { api, apiError, ct, dec2, int0, pcsInput } from "@/lib/api";
 import { PROCESS_CONFIG, PROCESS_LABELS, computeReturn } from "@/lib/processConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,7 +82,7 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
 
   return (
     <Dialog open={Boolean(entry)} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl rounded-none" data-testid="receive-dialog">
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto rounded-none" data-testid="receive-dialog">
         <DialogHeader>
           <DialogTitle className="font-heading uppercase tracking-wide">
             Receive — {PROCESS_LABELS[process]} · {entry.jangad_no}
@@ -102,8 +102,8 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
               onChange={(e) => setV({ ...v, return_date: e.target.value })} className={inp} />
           </Field>
           <Field label="Return Pcs">
-            <Input data-testid="receive-pcs-input" type="number" value={v.return_pcs ?? ""}
-              onChange={(e) => setV({ ...v, return_pcs: e.target.value })} className={inp} />
+            <Input data-testid="receive-pcs-input" {...pcsInput} value={v.return_pcs ?? ""}
+              onChange={(e) => setV({ ...v, return_pcs: int0(e.target.value) })} className={inp} />
           </Field>
           <Field label="Return Weight">
             <Input data-testid="receive-return_weight-input" type="text" inputMode="decimal" value={v.return_weight ?? ""}

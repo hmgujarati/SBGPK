@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { api, apiError, ct, dec2 } from "@/lib/api";
+import { api, apiError, ct, dec2, int0, pcsInput } from "@/lib/api";
 import { PROCESS_CONFIG, PROCESS_LABELS, computeReturn } from "@/lib/processConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -97,7 +97,7 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
 
   return (
     <Dialog open={Boolean(entry)} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl rounded-none bg-white" data-testid="edit-entry-dialog">
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto rounded-none bg-white" data-testid="edit-entry-dialog">
         <DialogHeader>
           <DialogTitle className="font-heading uppercase tracking-wide">
             Edit — {PROCESS_LABELS[process]} · {entry.jangad_no} · {entry.packet_no}
@@ -115,8 +115,8 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
               onChange={(e) => setV({ ...v, karigar_name: e.target.value })} className={inp} />
           </Field>
           <Field label="Issue Pcs">
-            <Input data-testid="edit-pcs-input" type="number" value={v.pcs ?? ""}
-              onChange={(e) => setV({ ...v, pcs: e.target.value })} className={inp} />
+            <Input data-testid="edit-pcs-input" {...pcsInput} value={v.pcs ?? ""}
+              onChange={(e) => setV({ ...v, pcs: int0(e.target.value) })} className={inp} />
           </Field>
           <Field label="Issue Weight">
             <Input data-testid="edit-weight-input" type="text" inputMode="decimal" value={v.weight ?? ""}
@@ -129,12 +129,12 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
                   onChange={(e) => setV({ ...v, hw: e.target.value })} className={inp} />
               </Field>
               <Field label="Tops">
-                <Input data-testid="edit-tops-input" type="number" value={v.tops ?? ""}
-                  onChange={(e) => setV({ ...v, tops: e.target.value })} className={inp} />
+                <Input data-testid="edit-tops-input" {...pcsInput} value={v.tops ?? ""}
+                  onChange={(e) => setV({ ...v, tops: int0(e.target.value) })} className={inp} />
               </Field>
               <Field label="Exp. Ret Pcs">
-                <Input data-testid="edit-exp-pcs-input" type="number" value={v.expected_return_pcs ?? ""}
-                  onChange={(e) => setV({ ...v, expected_return_pcs: e.target.value })} className={inp} />
+                <Input data-testid="edit-exp-pcs-input" {...pcsInput} value={v.expected_return_pcs ?? ""}
+                  onChange={(e) => setV({ ...v, expected_return_pcs: int0(e.target.value) })} className={inp} />
               </Field>
             </>
           )}
@@ -149,8 +149,8 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
                   onChange={(e) => setV({ ...v, return_date: e.target.value })} className={inp} />
               </Field>
               <Field label="Return Pcs">
-                <Input data-testid="edit-return-pcs-input" type="number" value={v.return_pcs ?? ""}
-                  onChange={(e) => setV({ ...v, return_pcs: e.target.value })} className={inp} />
+                <Input data-testid="edit-return-pcs-input" {...pcsInput} value={v.return_pcs ?? ""}
+                  onChange={(e) => setV({ ...v, return_pcs: int0(e.target.value) })} className={inp} />
               </Field>
               <Field label="Return Weight">
                 <Input data-testid="edit-return-weight-input" type="text" inputMode="decimal" value={v.return_weight ?? ""}

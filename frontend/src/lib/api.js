@@ -33,3 +33,9 @@ export const dec2 = (v) => {
   const m = s.match(/^\d*(?:\.\d{0,2})?/);
   return m ? m[0] : "";
 };
+
+// Pcs are whole numbers — strip anything that is not a digit.
+export const int0 = (v) => String(v ?? "").replace(/[^\d]/g, "");
+
+// Props for every whole-number (pcs) input: typing only, never the scroll wheel.
+export const pcsInput = { type: "text", inputMode: "numeric" };
