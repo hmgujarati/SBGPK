@@ -48,6 +48,7 @@ export const EntryTable = ({ rows, onReceive, onDelete, onEdit, onDeletePacket, 
             <TH right>Return Boil</TH>
             <TH right>RC</TH>
             <TH right>Nail RC</TH>
+            <TH right>Palchu</TH>
             <TH right>Net Fwd</TH>
             <TH right>Loss</TH>
             <TH right>Loss %</TH>
@@ -73,7 +74,7 @@ export const EntryTable = ({ rows, onReceive, onDelete, onEdit, onDeletePacket, 
                 <TD cls="text-zinc-500">{e.hw || e.ds || "—"}</TD>
                 <TD right>{e.process === "laser" ? e.tops || 0 : "—"}</TD>
                 <TD right>{e.process === "laser" ? e.expected_return_pcs || 0 : "—"}</TD>
-                {Array.from({ length: 11 }).map((_, x) => (
+                {Array.from({ length: 12 }).map((_, x) => (
                   <TD key={x} cls="text-zinc-300">—</TD>
                 ))}
                 <TD>
@@ -127,6 +128,7 @@ export const EntryTable = ({ rows, onReceive, onDelete, onEdit, onDeletePacket, 
               <TD right>{ct(e.return_boil)}</TD>
               <TD right>{ct(e.rc)}</TD>
               <TD right>{ct(e.nail_rc)}</TD>
+              <TD right cls="text-[#B4975A]">{ct(e.palchu)}</TD>
               <TD right cls="font-semibold text-[#16A34A]">{e.returned ? ct(e.net_weight) : "—"}</TD>
               <TD right cls="text-[#DC2626]">{e.returned ? ct(e.loss) : "—"}</TD>
               <TD right cls="text-[#DC2626]">{e.returned ? `${ct(e.loss_pct)}%` : "—"}</TD>

@@ -109,7 +109,7 @@ class TestChainedSplitUndoMiddle:
             _recycle(admin, "marking", src)
             b = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
             _recycle(admin, "laser", b)
-            c = _bulk(admin, sid, "shape", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
+            c = _bulk(admin, sid, "sarine", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
 
             # after chain: A consumed, B consumed, C alive with 30
             live = {p["packet_no"]: p for p in _packets(admin, sid)}
@@ -146,7 +146,7 @@ class TestPartialChainUndo:
             a = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
             _recycle(admin, "marking", a)
             b = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 12.0}]).json()["created"][0]
-            c = _bulk(admin, sid, "shape", [{"pcs": 1, "weight": 5.0}]).json()["created"][0]
+            c = _bulk(admin, sid, "sarine", [{"pcs": 1, "weight": 5.0}]).json()["created"][0]
 
             # Whatever the internal pool ordering, total live weight must equal 30
             live = {p["packet_no"]: p for p in _packets(admin, sid)}

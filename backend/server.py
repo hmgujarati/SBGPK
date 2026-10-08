@@ -47,6 +47,8 @@ api = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
 
 LOSS_PROCESSES = {"laser", "shape", "ghat", "polish", "table_polish", "nats", "filling"}
+# these registers are fed only by the Palchu recovered on returns, never by rough / pre-polish stock
+PALCHU_PROCESSES = {"shape", "ghat", "polish", "table_polish"}
 
 
 MAX_PACKET_CODE = 99999
@@ -111,9 +113,11 @@ def compute_entry(doc: dict) -> dict:
     boil = r2(doc.get("return_boil"))
     rc = r2(doc.get("rc"))
     nail_rc = r2(doc.get("nail_rc"))
+    palchu = r2(doc.get("palchu"))
     doc["return_weight"], doc["return_boil"], doc["rc"], doc["nail_rc"] = rw, boil, rc, nail_rc
+    doc["palchu"] = palchu
 
-    doc["net_weight"] = r2(boil - rc - nail_rc)
+    doc["net_weight"] = r2(boil - rc - nail_rc - palchu)
     if process == "filling":
         doc["weight_gain"] = r2(boil - weight)
         doc["loss"] = 0.0
@@ -131,6 +135,7 @@ def validate_return(process: str, issued: float, payload_like: dict) -> None:
     boil = r2(payload_like.get("return_boil"))
     rc = r2(payload_like.get("rc"))
     nail_rc = r2(payload_like.get("nail_rc"))
+    palchu = r2(payload_like.get("palchu"))
     if boil <= 0:
         raise HTTPException(status_code=400, detail="Return boil must be greater than 0")
     if process == "filling":
@@ -144,10 +149,11 @@ def validate_return(process: str, issued: float, payload_like: dict) -> None:
             status_code=400,
             detail=f"Return boil ({boil:.2f}) cannot exceed issued weight {issued:.2f} cts",
         )
-    if rc + nail_rc > boil + 0.001:
+    if rc + nail_rc + palchu > boil + 0.001:
         raise HTTPException(
             status_code=400,
-            detail=f"RC + Nail RC ({rc + nail_rc:.2f}) cannot exceed the return boil {boil:.2f} cts",
+            detail=f"RC + Nail RC + Palchu ({rc + nail_rc + palchu:.2f}) cannot exceed "
+                   f"the return boil {boil:.2f} cts",
         )
 
 
@@ -355,6 +361,7 @@ async def build_reports(kapans: list) -> dict:
         {"$group": {
             "_id": {"k": "$kapan_id", "p": "$process", "r": "$returned"},
             "rc": {"$sum": "$rc"}, "nail_rc": {"$sum": "$nail_rc"},
+            "palchu": {"$sum": "$palchu"},
             "boil": {"$sum": "$return_boil"}, "loss": {"$sum": "$loss"},
             "gain": {"$sum": "$weight_gain"}, "n": {"$sum": 1},
         }},
@@ -365,16 +372,19 @@ async def build_reports(kapans: list) -> dict:
         {"$group": {
             "_id": {"k": "$kapan_id", "s": "$status", "lp": "$last_process", "ss": "$stock_state"},
             "weight": {"$sum": "$weight"}, "original": {"$sum": "$original_weight"},
+            "palchu_used": {"$sum": "$palchu_weight"},
             "pcs": {"$sum": "$pcs"}, "n": {"$sum": 1},
         }},
     ]).to_list(None)
 
     acc = {
-        kid: {"b": {"rc": 0.0, "nail_rc": 0.0, "boil": 0.0, "laser_loss": 0.0, "shape_ghat_loss": 0.0,
+        kid: {"b": {"rc": 0.0, "nail_rc": 0.0, "palchu": 0.0, "boil": 0.0, "laser_loss": 0.0,
+                    "shape_ghat_loss": 0.0,
                     "polish_loss": 0.0, "nats_loss": 0.0, "other_loss": 0.0, "filling_gain": 0.0},
               "open": set(), "done": set(), "entries_count": 0,
               "in_process_weight": 0.0, "in_process_pcs": 0, "issued_count": 0,
               "polish_weight": 0.0, "stock_weight": 0.0, "allocated_weight": 0.0,
+              "palchu_used": 0.0,
               "packeted": 0.0, "packet_count": 0}
         for kid in ids
     }
@@ -390,6 +400,7 @@ async def build_reports(kapans: list) -> dict:
             continue
         a["b"]["rc"] += r2(row["rc"])
         a["b"]["nail_rc"] += r2(row["nail_rc"])
+        a["b"]["palchu"] += r2(row.get("palchu") or 0)
         a["b"]["boil"] += r2(row["boil"])
         if proc == "filling":
             a["b"]["filling_gain"] += r2(row["gain"])
@@ -401,6 +412,7 @@ async def build_reports(kapans: list) -> dict:
         if not a:
             continue
         a["packeted"] += r2(row["original"])
+        a["palchu_used"] += r2(row.get("palchu_used") or 0)
         if row["_id"]["s"] == "consumed":
             # split into new packets — its rough still counts as packeted, nothing else
             continue
@@ -423,8 +435,10 @@ async def build_reports(kapans: list) -> dict:
         b = a["b"]
         kapan_weight = r2(kapan.get("weight"))
         unpacketed = r2(kapan_weight - r2(a["packeted"]))
+        palchu_available = r2(b["palchu"] - r2(a["palchu_used"]))
         accounted = r2(
-            b["rc"] + b["nail_rc"] + b["laser_loss"] + b["shape_ghat_loss"] + b["polish_loss"]
+            b["rc"] + b["nail_rc"] + palchu_available
+            + b["laser_loss"] + b["shape_ghat_loss"] + b["polish_loss"]
             + b["nats_loss"] + b["other_loss"] + a["in_process_weight"] + a["polish_weight"]
             + a["stock_weight"] + a["allocated_weight"] + unpacketed - b["filling_gain"]
         )
@@ -436,6 +450,8 @@ async def build_reports(kapans: list) -> dict:
             "polish_weight": r2(a["polish_weight"]),
             "stock_weight": r2(a["stock_weight"]),
             "allocated_weight": r2(a["allocated_weight"]),
+            "palchu_used": r2(a["palchu_used"]),
+            "palchu_available": palchu_available,
             "packeted_weight": r2(a["packeted"]),
             "unpacketed_weight": unpacketed,
             "accounted_weight": accounted,
@@ -486,7 +502,8 @@ async def list_kapans(
 
     all_kapans = await db.kapans.find(query, {"weight": 1}).to_list(None)
     all_reports = await build_reports(all_kapans) if total else {}
-    keys = ["rc", "nail_rc", "laser_loss", "shape_ghat_loss", "polish_loss",
+    keys = ["rc", "nail_rc", "palchu", "palchu_available", "laser_loss", "shape_ghat_loss",
+            "polish_loss",
             "polish_weight", "in_process_weight", "stock_weight", "allocated_weight",
             "unpacketed_weight"]
     totals = {k: r2(sum(rep.get(k, 0) for rep in all_reports.values())) for k in keys}
@@ -699,17 +716,32 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
         key=lambda p: int(p.get("seq") or 0),
     )
     stock_left = r2(sum(r2(p.get("weight")) for p in stock_pool))
-    budget = r2(rough_left + stock_left)
     total = r2(sum(r2(r.weight) for r in rows))
-    if total > budget + 0.001:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Total {total:.2f} cts exceeds the {budget:.2f} cts available "
-                   f"({rough_left:.2f} un-packeted rough + {stock_left:.2f} in stock)",
-        )
 
-    # draw rough first, then eat into the stock packets in order
-    from_rough = r2(min(total, rough_left))
+    # Shape / Ghat / Polish / Table Polish are fed only by the Palchu recovered on returns
+    is_palchu = payload.process in PALCHU_PROCESSES
+    if is_palchu:
+        report = await build_report(_kid, kapan)
+        palchu_left = r2(report["palchu_available"])
+        if total > palchu_left + 0.001:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Total {total:.2f} cts exceeds the {palchu_left:.2f} cts Palchu available "
+                       f"for {PROCESS_LABELS.get(payload.process, payload.process)}",
+            )
+        stock_pool = []
+        from_rough = 0.0
+    else:
+        budget = r2(rough_left + stock_left)
+        if total > budget + 0.001:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Total {total:.2f} cts exceeds the {budget:.2f} cts available "
+                       f"({rough_left:.2f} un-packeted rough + {stock_left:.2f} in stock)",
+            )
+        # draw rough first, then eat into the stock packets in order
+        from_rough = r2(min(total, rough_left))
+
     need = r2(total - from_rough)
     consumed_from = None
     for src in stock_pool:
@@ -751,7 +783,9 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
             "original_pcs": pcs,
             # only the rough it consumed counts as "packeted" rough, so un-packeted stays right
             "original_weight": rough_part,
-            "carried_weight": r2(weight - rough_part),
+            "carried_weight": 0.0 if is_palchu else r2(weight - rough_part),
+            # weight drawn out of the kapan's Palchu pool
+            "palchu_weight": weight if is_palchu else 0.0,
             "size": r2(weight / pcs) if pcs else 0.0,
             "status": "in_stock",
             "stock_state": "fresh",
@@ -761,8 +795,12 @@ async def create_process_packets(kapan_id: str, payload: BulkProcessPackets, use
             "expected_return_pcs": int(row.expected_return_pcs or 0) if payload.process == "laser" else 0,
             # split out of returned material? then it keeps that stage so it stays in the same
             # weight bucket and can be issued to any process next
-            "last_process": consumed_from.get("last_process") if (weight > rough_part and consumed_from) else None,
-            "split_from": (consumed_from.get("packet_no") if (weight > rough_part and consumed_from) else None),
+            "last_process": (None if is_palchu else
+                             (consumed_from.get("last_process")
+                              if (weight > rough_part and consumed_from) else None)),
+            "split_from": (None if is_palchu else
+                           (consumed_from.get("packet_no")
+                            if (weight > rough_part and consumed_from) else None)),
             "current_process": None,
             "notes": "",
             "created_at": now_utc(),
@@ -840,7 +878,7 @@ async def sp_kapan_report(kapan_id: str, user: dict = Depends(get_current_user))
         loss = r2(rep["laser_loss"] + rep["shape_ghat_loss"] + rep["polish_loss"]
                   + rep["nats_loss"] + rep["other_loss"])
         live = r2(rep["stock_weight"] + rep["allocated_weight"] + rep["polish_weight"]
-                  + rep["in_process_weight"] + rep["unpacketed_weight"])
+                  + rep["in_process_weight"] + rep["unpacketed_weight"] + rep["palchu_available"])
         item = serialize(s)
         item.update({
             "report": rep,

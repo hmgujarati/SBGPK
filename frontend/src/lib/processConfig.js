@@ -42,6 +42,7 @@ const F = {
   tops: { key: "tops", label: "Tops", type: "number" },
   rc: { key: "rc", label: "RC", type: "number", step: "0.01" },
   nail_rc: { key: "nail_rc", label: "Nail / RC", type: "number", step: "0.01" },
+  palchu: { key: "palchu", label: "Palchu", type: "number", step: "0.01" },
   boil: { key: "return_boil", label: "Return Boil", type: "number", step: "0.01" },
   ls: { key: "ls_opening", label: "LS Opening", type: "text" },
 };
@@ -54,26 +55,29 @@ export const PROCESS_CREATE_FIELDS = {
   polish: [{ key: "ds", label: "D / S", type: "select", options: ["Double", "Single"] }],
 };
 
+export const PALCHU_PROCESSES = ["shape", "ghat", "polish", "table_polish"];
+
 export const PROCESS_CONFIG = {
-  sarine: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
-  marking: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
-  laser: { issue: [], ret: [F.boil, F.rc, F.nail_rc, F.ls], showLoss: true },
-  shape: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
-  ghat: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
-  polish: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true, showRetPct: true },
-  table_polish: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true, showRetPct: true },
-  nats: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: true },
-  filling: { issue: [], ret: [F.boil, F.rc, F.nail_rc], showLoss: false, showGain: true },
+  sarine: { issue: [], ret: [F.boil, F.rc, F.nail_rc, F.palchu], showLoss: true },
+  marking: { issue: [], ret: [F.boil, F.rc, F.nail_rc, F.palchu], showLoss: true },
+  laser: { issue: [], ret: [F.boil, F.rc, F.nail_rc, F.palchu, F.ls], showLoss: true },
+  shape: { issue: [], ret: [F.boil, F.rc, F.nail_rc, F.palchu], showLoss: true },
+  ghat: { issue: [], ret: [F.boil, F.rc, F.nail_rc, F.palchu], showLoss: true },
+  polish: { issue: [], ret: [F.boil, F.rc, F.nail_rc, F.palchu], showLoss: true, showRetPct: true },
+  table_polish: { issue: [], ret: [F.boil, F.rc, F.nail_rc, F.palchu], showLoss: true, showRetPct: true },
+  nats: { issue: [], ret: [F.boil, F.rc, F.nail_rc, F.palchu], showLoss: true },
+  filling: { issue: [], ret: [F.boil, F.rc, F.nail_rc, F.palchu], showLoss: false, showGain: true },
 };
 
-/** Loss comes off the Return Boil; RC / Nail RC are allocations out of the boil. */
+/** Loss comes off the Return Boil; RC / Nail RC / Palchu are allocations out of the boil. */
 export function computeReturn(process, issueWeight, values) {
   const w = Number(issueWeight || 0);
   const rw = Number(values.return_weight || 0);
   const boil = Number(values.return_boil || 0);
   const rc = Number(values.rc || 0);
   const nail = Number(values.nail_rc || 0);
-  const net = boil - rc - nail;
+  const palchu = Number(values.palchu || 0);
+  const net = boil - rc - nail - palchu;
   if (process === "filling") {
     return { loss: 0, loss_pct: 0, return_pct: w ? (rw / w) * 100 : 0, weight_gain: boil - w, net };
   }

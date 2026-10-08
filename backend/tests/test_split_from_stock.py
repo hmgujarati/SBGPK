@@ -95,7 +95,7 @@ class TestSPPartialConsumptionAcrossSources:
             assert rep["stock_weight"] == 50.0
 
             # now create ONE shape packet of 35 — must consume 20 + 15 across two sources
-            r = _bulk(admin, sid, "shape", [{"pcs": 1, "weight": 35.0}])
+            r = _bulk(admin, sid, "sarine", [{"pcs": 1, "weight": 35.0}])
             assert r.status_code == 200, r.text
             new = r.json()["created"][0]
             # inherits last_process=marking so it lives in stock bucket
@@ -177,7 +177,7 @@ class TestDeleteRulesAfterSplit:
             receive(admin, e["id"], return_pcs=1, return_weight=30.0, return_boil=30.0, rc=0.0, nail_rc=0.0)
 
             # now split-from-stock into a shape packet
-            r = _bulk(admin, sid, "shape", [{"pcs": 1, "weight": 30.0}])
+            r = _bulk(admin, sid, "sarine", [{"pcs": 1, "weight": 30.0}])
             assert r.status_code == 200, r.text
             split = r.json()["created"][0]
 
@@ -230,7 +230,7 @@ class TestNormalKapanSplitFromStock:
             assert r1["unpacketed_weight"] == 0.0
 
             # split into shape packets from stock
-            r = _bulk(admin, k["id"], "shape",
+            r = _bulk(admin, k["id"], "sarine",
                       [{"pcs": 1, "weight": 55.0}, {"pcs": 1, "weight": 45.0}])
             assert r.status_code == 200, r.text
             new = r.json()["created"]
@@ -261,7 +261,7 @@ class TestNormalKapanSplitFromStock:
         k = new_kapan(admin, weight=50.0, pcs=3)
         try:
             _bulk(admin, k["id"], "marking", [{"pcs": 1, "weight": 50.0}])
-            r = _bulk(admin, k["id"], "shape", [{"pcs": 1, "weight": 500.0}])
+            r = _bulk(admin, k["id"], "sarine", [{"pcs": 1, "weight": 500.0}])
             assert r.status_code == 400
             detail = r.json()["detail"]
             assert "500.00" in detail
@@ -348,11 +348,11 @@ class TestStagePoolRule:
             assert laser.json()["created"][0]["split_from"] == "1.1"
 
             # only the 18 still free in marking is drawable now (the 12 is locked in a packet)
-            over = _bulk(admin, sid, "ghat", [{"pcs": 1, "weight": 18.5}])
+            over = _bulk(admin, sid, "sarine", [{"pcs": 1, "weight": 18.5}])
             assert over.status_code == 400, over.text
             assert "available" in over.json()["detail"]
 
-            shape = _bulk(admin, sid, "shape", [{"pcs": 1, "weight": 18.0}])
+            shape = _bulk(admin, sid, "sarine", [{"pcs": 1, "weight": 18.0}])
             assert shape.status_code == 200, shape.text
 
             st = _stone(admin, sid)

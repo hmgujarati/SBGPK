@@ -170,6 +170,7 @@ class EntryReturn(BaseModel):
     return_boil: Optional[float] = 0.0
     rc: Optional[float] = 0.0
     nail_rc: Optional[float] = 0.0
+    palchu: Optional[float] = 0.0
     ls_opening: Optional[str] = ""
     notes: Optional[str] = ""
 

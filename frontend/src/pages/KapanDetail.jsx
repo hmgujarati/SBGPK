@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Printer } from "@phosphor-icons/react";
 import { api, apiError, ct } from "@/lib/api";
-import { PROCESS_LABELS, PROCESS_ORDER, SP_PROCESS_ORDER } from "@/lib/processConfig";
+import { PROCESS_LABELS, PROCESS_ORDER, SP_PROCESS_ORDER, PALCHU_PROCESSES } from "@/lib/processConfig";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader, Stat } from "@/components/Bits";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,7 @@ export default function KapanDetail() {
 
   const p = k.report || {};
   const isStone = k.mode === "sp_stone";
+  const isPalchuTab = PALCHU_PROCESSES.includes(tab);
   const tabs = isStone ? SP_PROCESS_ORDER : PROCESS_ORDER;
   // a packet that already has jangad history is shown by its history rows only
   const withHistory = new Set((k.entries || []).map((e) => e.packet_id));
@@ -125,6 +126,7 @@ export default function KapanDetail() {
           <span>Un-packeted: <b className="tabular-nums" data-testid="rep-unpacketed">{ct(p.unpacketed_weight)}</b></span>
           <span>Stock (pre-polish): <b className="tabular-nums" data-testid="rep-stock">{ct(p.stock_weight)}</b></span>
           <span>In packets (unissued): <b className="tabular-nums" data-testid="rep-allocated">{ct(p.allocated_weight)}</b></span>
+          <span>Palchu (available): <b className="tabular-nums" data-testid="rep-palchu">{ct(p.palchu_available)}</b></span>
           <span>Return Boil (total): <b className="tabular-nums">{ct(p.boil)}</b></span>
           <span>Nats Loss: <b className="tabular-nums">{ct(p.nats_loss)}</b></span>
           <span>Sarine / Marking Loss: <b className="tabular-nums" data-testid="rep-other-loss">{ct(p.other_loss)}</b></span>
@@ -181,11 +183,14 @@ export default function KapanDetail() {
       </div>
 
       <BulkPacketDialog open={bulkOpen} onOpenChange={setBulkOpen} kapanId={id} process={tab}
+        sourceLabel={isPalchuTab ? "Palchu recovered on returns" : "un-packeted rough + stock pre-polish"}
         remaining={
-          (p.unpacketed_weight || 0) +
-          (k.packets || [])
-            .filter((x) => x.status === "in_stock" && x.stock_state !== "fresh")
-            .reduce((a, x) => a + Number(x.weight || 0), 0)
+          isPalchuTab
+            ? p.palchu_available || 0
+            : (p.unpacketed_weight || 0) +
+              (k.packets || [])
+                .filter((x) => x.status === "in_stock" && x.stock_state !== "fresh")
+                .reduce((a, x) => a + Number(x.weight || 0), 0)
         } onDone={load} />
       <ReceiveDialog entry={receiving} onClose={() => setReceiving(null)} onDone={load} />
       <EditEntryDialog entry={editing} onClose={() => setEditing(null)} onDone={load} />

@@ -38,6 +38,7 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
       return_boil: entry.return_boil ? String(entry.return_boil) : "",
       rc: entry.rc ? String(entry.rc) : "",
       nail_rc: entry.nail_rc ? String(entry.nail_rc) : "",
+      palchu: entry.palchu ? String(entry.palchu) : "",
       ls_opening: entry.ls_opening || "",
     });
   }, [entry]);
@@ -49,7 +50,7 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
 
   const issued = Number(v.weight || 0);
   const boil = Number(v.return_boil || 0);
-  const alloc = Number(v.rc || 0) + Number(v.nail_rc || 0);
+  const alloc = Number(v.rc || 0) + Number(v.nail_rc || 0) + Number(v.palchu || 0);
   const invalid =
     !issued ||
     (entry?.returned &&
@@ -77,6 +78,7 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
           return_boil: Number(v.return_boil || 0),
           rc: Number(v.rc || 0),
           nail_rc: Number(v.nail_rc || 0),
+          palchu: Number(v.palchu || 0),
           ls_opening: v.ls_opening || "",
         });
       }
@@ -203,7 +205,7 @@ export const EditEntryDialog = ({ entry, onClose, onDone }) => {
               : !boil
                 ? "Return boil must be greater than 0"
                 : alloc > boil + 0.001
-                  ? `RC + Nail RC (${alloc.toFixed(2)}) cannot exceed the return boil ${boil.toFixed(2)} cts`
+                  ? `RC + Nail RC + Palchu (${alloc.toFixed(2)}) cannot exceed the return boil ${boil.toFixed(2)} cts`
                   : process === "filling"
                     ? `Filling adds weight — return boil cannot be less than ${issued.toFixed(2)} cts`
                     : `Return boil (${boil.toFixed(2)}) cannot exceed issued ${issued.toFixed(2)} cts`}

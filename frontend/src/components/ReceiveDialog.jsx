@@ -30,6 +30,7 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
         return_boil: "",
         rc: "",
         nail_rc: "",
+        palchu: "",
         ls_opening: "",
       });
   }, [entry]);
@@ -41,7 +42,7 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
 
   const issued = Number(entry?.weight || 0);
   const boil = Number(v.return_boil || 0);
-  const alloc = Number(v.rc || 0) + Number(v.nail_rc || 0);
+  const alloc = Number(v.rc || 0) + Number(v.nail_rc || 0) + Number(v.palchu || 0);
   const invalid =
     !boil ||
     (process === "filling" ? boil < issued - 0.001 : boil > issued + 0.001) ||
@@ -49,7 +50,7 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
   const warning = !boil
     ? "Return boil must be greater than 0"
     : alloc > boil + 0.001
-      ? `RC + Nail RC (${alloc.toFixed(2)}) cannot exceed the return boil ${boil.toFixed(2)} cts`
+      ? `RC + Nail RC + Palchu (${alloc.toFixed(2)}) cannot exceed the return boil ${boil.toFixed(2)} cts`
       : process === "filling"
         ? `Filling adds weight — return boil cannot be less than ${issued.toFixed(2)} cts`
         : `Return boil (${boil.toFixed(2)}) cannot exceed issued ${issued.toFixed(2)} cts`;
@@ -64,6 +65,7 @@ export const ReceiveDialog = ({ entry, onClose, onDone }) => {
         return_boil: Number(v.return_boil || 0),
         rc: Number(v.rc || 0),
         nail_rc: Number(v.nail_rc || 0),
+        palchu: Number(v.palchu || 0),
         ls_opening: v.ls_opening || "",
       });
       toast.success("Packet received");

@@ -208,7 +208,7 @@ class TestSPIssueReceive:
         try:
             _add_stones(admin, k["id"], [20.0])
             st = _sp_report(admin, k["id"])["stones"][0]
-            p = _bulk(admin, st["id"], "polish", [{"pcs": 1, "weight": 20.0}]).json()["created"][0]
+            p = _bulk(admin, st["id"], "laser", [{"pcs": 1, "weight": 20.0}]).json()["created"][0]
             for proc in ("nats", "filling"):
                 r = _issue(admin, proc, [p["id"]])
                 assert r.status_code == 400, proc
@@ -231,7 +231,7 @@ class TestSPStoneSplitFromStock:
             assert rep["unpacketed_weight"] == 0.0 and rep["stock_weight"] == 40.0
 
             # split that 40.00 into two shape-cutting packets — un-packeted is 0 but stock is not
-            r = _bulk(admin, st["id"], "shape", [{"pcs": 1, "weight": 25.0}, {"pcs": 1, "weight": 15.0}])
+            r = _bulk(admin, st["id"], "sarine", [{"pcs": 1, "weight": 25.0}, {"pcs": 1, "weight": 15.0}])
             assert r.status_code == 200, r.text
             new = r.json()["created"]
             assert [x["packet_no"] for x in new] == ["1.2", "1.3"]
@@ -245,7 +245,7 @@ class TestSPStoneSplitFromStock:
             assert after["balanced"] is True
 
             # over budget still refused
-            bad = _bulk(admin, st["id"], "ghat", [{"pcs": 1, "weight": 500.0}])
+            bad = _bulk(admin, st["id"], "sarine", [{"pcs": 1, "weight": 500.0}])
             assert bad.status_code == 400 and "available" in bad.json()["detail"]
         finally:
             admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)

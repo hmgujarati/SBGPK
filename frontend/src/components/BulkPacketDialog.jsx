@@ -12,7 +12,7 @@ const inp = "mt-1 h-10 rounded-none border-black/15 tabular-nums";
 const cell = "h-9 rounded-none border-black/15 tabular-nums";
 const emptyRow = () => ({ pcs: "", weight: "", hw: "", tops: "", expected_return_pcs: "", ds: "Double" });
 
-export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaining, onDone }) => {
+export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaining, sourceLabel, onDone }) => {
   const [date, setDate] = useState(today());
   const [rows, setRows] = useState([emptyRow(), emptyRow(), emptyRow()]);
   const [busy, setBusy] = useState(false);
@@ -178,7 +178,7 @@ export const BulkPacketDialog = ({ open, onOpenChange, kapanId, process, remaini
           </button>
           <div className={`text-xs ${over ? "font-semibold text-[#DC2626]" : "text-zinc-500"}`} data-testid="bulk-remaining">
             Available: <b className="tabular-nums">{ct(remaining)}</b> cts
-            <span className="text-zinc-400"> (un-packeted rough + stock pre-polish)</span>
+            <span className="text-zinc-400"> ({sourceLabel || "un-packeted rough + stock pre-polish"})</span>
             {over && " — total exceeds this"}
           </div>
         </div>

@@ -79,6 +79,21 @@ def receive(sess, entry_id, **kw):
     return sess.post(f"{API}/entries/{entry_id}/receive", json=body, timeout=TIMEOUT)
 
 
+def seed_palchu(sess, kapan_id, weight):
+    """Shape / Ghat / Polish / Table Polish draw only from Palchu — put some in the pool."""
+    pk = sess.post(f"{API}/kapans/{kapan_id}/process-packets",
+                   json={"process": "laser", "date": "2026-07-05",
+                         "rows": [{"pcs": 1, "weight": weight}]},
+                   timeout=TIMEOUT).json()["created"][0]
+    e = sess.post(f"{API}/jangads", json={"process": "laser", "date": "2026-07-06",
+                                          "packet_ids": [pk["id"]], "karigar_name": "TEST_PALCHU_K"},
+                  timeout=TIMEOUT).json()["entries"][0]
+    r = receive(sess, e["id"], return_pcs=1, return_weight=weight, return_boil=weight,
+                rc=0.0, nail_rc=0.0, palchu=weight)
+    assert r.status_code == 200, r.text
+
+
+
 def report(sess, kapan_id):
     r = sess.get(f"{API}/kapans/{kapan_id}", timeout=TIMEOUT)
     assert r.status_code == 200, r.text
@@ -612,6 +627,7 @@ class TestJangads:
             assert e["hw"] == "4x5" and e["ds"] == ""
             assert e["tops"] == 2 and e["expected_return_pcs"] == 4
 
+        seed_palchu(admin, kapan["id"], 15.0)
         pids2, _ = self._make_packets(admin, kapan, 2, 5.0, "polish")
         r = issue_jangad(admin, "polish", pids2, hw="9x9", ds="Single", expected_return_pcs=3)
         assert r.status_code == 200, r.text
@@ -634,6 +650,7 @@ class TestJangads:
         assert e["hw"] == "" and e["ds"] == "" and e["expected_return_pcs"] == 0
 
     def test_get_jangad_by_no_returns_lines_and_totals(self, admin, kapan):
+        seed_palchu(admin, kapan["id"], 15.0)
         pids, pnos = self._make_packets(admin, kapan, 2, 7.5, "shape")
         j = issue_jangad(admin, "shape", pids, karigar_name="TEST_SLIP_K").json()
         r = admin.get(f"{API}/jangads/{j['jangad_no']}", timeout=TIMEOUT)
