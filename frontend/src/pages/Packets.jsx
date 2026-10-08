@@ -169,6 +169,51 @@ export const EntryTable = ({ rows, onReceive, onDelete, onEdit, onDeletePacket, 
   );
 };
 
+export const StockTable = ({ rows }) => {
+  if (!rows.length) return <Empty testid="stock-empty" text="No packets waiting to be issued." />;
+  return (
+    <div className="overflow-x-auto border border-black/10 bg-white">
+      <table className="w-full min-w-[700px] border-collapse text-xs" data-testid="issue-stock-table">
+        <thead>
+          <tr className="bg-zinc-900 text-white">
+            <TH>Code</TH>
+            <TH>Kapan</TH>
+            <TH>Packet</TH>
+            <TH>Register</TH>
+            <TH>Stage</TH>
+            <TH right>Pcs</TH>
+            <TH right>Weight</TH>
+            <TH />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => (
+            <tr key={p.id} data-testid={`issue-stock-row-${p.packet_no}`}
+              className="border-b border-black/5 transition-colors hover:bg-[#B4975A]/10">
+              <TD cls="font-heading font-bold tabular-nums tracking-widest">{p.code || "—"}</TD>
+              <TD cls="tabular-nums">{p.kapan_no}</TD>
+              <TD cls="font-semibold tabular-nums">{p.packet_no}</TD>
+              <TD>{PROCESS_LABELS[p.process]}</TD>
+              <TD cls="text-[10px] uppercase tracking-wider text-zinc-500">
+                {p.mode === "sp_stone" ? "SP · " : ""}
+                {p.last_process ? `after ${PROCESS_LABELS[p.last_process]}` : "new"}
+              </TD>
+              <TD right>{p.pcs}</TD>
+              <TD right cls="font-semibold">{ct(p.weight)}</TD>
+              <td className="whitespace-nowrap px-2 py-2 text-right">
+                <Link to={`/labels?ids=${p.id}`} data-testid={`stock-print-label-${p.packet_no}`} title="Print label"
+                  className="inline-block text-zinc-400 transition-colors hover:text-zinc-900">
+                  <Printer size={14} />
+                </Link>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 export default function Packets({ mode }) {
   const { can } = useAuth();
   const [rows, setRows] = useState([]);
@@ -182,7 +227,8 @@ export default function Packets({ mode }) {
   const [editing, setEditing] = useState(null);
   const [scan, setScan] = useState("");
   const scanRef = useRef(null);
-  const LIMIT = 100;
+  const LIMIT = 50;
+  const isReceive = mode === "receive";
 
   const scanReceive = async (e) => {
     e.preventDefault();
@@ -200,17 +246,30 @@ export default function Packets({ mode }) {
   };
 
   const load = () => {
-    api.get("/entries", {
-      params: { status: mode === "receive" ? "open" : undefined, q: q || undefined, page, limit: LIMIT },
-    })
+    if (isReceive) {
+      // only packets still out with a karigar — they drop off the page once received
+      api.get("/entries", { params: { status: "open", q: q || undefined, page, limit: LIMIT } })
+        .then((r) => {
+          setRows(r.data.items);
+          setTotal(r.data.total);
+          setStats(r.data.stats || {});
+        })
+        .catch((e) => toast.error(apiError(e)));
+      api.get("/packets", { params: { status: "in_stock", limit: 1 } })
+        .then((r) => setStockCount(r.data.total))
+        .catch(() => {});
+      return;
+    }
+    // issue page lists what is still in stock — an issued packet disappears from here
+    api.get("/packets", { params: { status: "in_stock", q: q || undefined, page, limit: LIMIT } })
       .then((r) => {
         setRows(r.data.items);
         setTotal(r.data.total);
-        setStats(r.data.stats || {});
+        setStockCount(r.data.total);
       })
       .catch((e) => toast.error(apiError(e)));
-    api.get("/packets", { params: { status: "in_stock", limit: 1 } })
-      .then((r) => setStockCount(r.data.total))
+    api.get("/entries", { params: { status: "open", limit: 1 } })
+      .then((r) => setStats(r.data.stats || {}))
       .catch(() => {});
   };
 
@@ -236,12 +295,12 @@ export default function Packets({ mode }) {
   const outWeight = stats.open_weight || 0;
 
   return (
-    <div data-testid={mode === "receive" ? "packet-receive-page" : "packet-issue-page"}>
+      <div data-testid={isReceive ? "packet-receive-page" : "packet-issue-page"}>
       <PageHeader
-        title={mode === "receive" ? "Packet Receive" : "Packet Issue"}
-        subtitle={mode === "receive" ? "Packets out with karigars — enter return pcs & weight" : "Select packets from stock and issue them under one Jangad"}
+        title={isReceive ? "Packet Receive" : "Packet Issue"}
+        subtitle={isReceive ? "Packets out with karigars — enter return pcs & weight" : "Packets in stock waiting to be issued — jangad history lives on the Jangad page"}
       >
-        {mode !== "receive" && can("can_create") && (
+        {!isReceive && can("can_create") && (
           <Button data-testid="new-issue-button" onClick={() => setIssueOpen(true)}
             className="h-9 rounded-none bg-zinc-900 text-xs font-semibold uppercase tracking-widest transition-colors hover:bg-zinc-800">
             <Plus size={14} className="mr-1" /> Issue Packet
@@ -249,7 +308,7 @@ export default function Packets({ mode }) {
         )}
       </PageHeader>
 
-      {mode === "receive" && can("can_create") && (
+      {isReceive && can("can_create") && (
         <form onSubmit={scanReceive} className="mb-4 flex items-end gap-2 border border-black/10 bg-white p-3">          <div className="flex-1">
             <Label className="text-[11px] uppercase tracking-wider text-zinc-600">
               Scan packet barcode to receive
@@ -274,12 +333,17 @@ export default function Packets({ mode }) {
 
       <div className="mb-3">
         <Input data-testid="entries-search-input" value={q} onChange={(e) => setQ(e.target.value)}
-          placeholder="Search packet no / jangad / karigar"
+          placeholder={isReceive ? "Search packet no / jangad / karigar" : "Search packet no / code"}
           className="h-9 w-full rounded-none border-black/15 sm:w-72" />
       </div>
 
-      <EntryTable rows={rows} onReceive={setReceiving} onDelete={remove} onEdit={setEditing} />
-      <Pager page={page} limit={LIMIT} total={total} onPage={setPage} testid="entries-pager" label="entries" />
+      {isReceive ? (
+        <EntryTable rows={rows} onReceive={setReceiving} onDelete={remove} onEdit={setEditing} />
+      ) : (
+        <StockTable rows={rows} />
+      )}
+      <Pager page={page} limit={LIMIT} total={total} onPage={setPage} testid="entries-pager"
+        label={isReceive ? "entries" : "packets"} />
 
       <IssueDialog open={issueOpen} onOpenChange={setIssueOpen} onDone={load} />
       <ReceiveDialog entry={receiving} onClose={() => setReceiving(null)} onDone={load} />

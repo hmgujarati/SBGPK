@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Trash, Barcode } from "@phosphor-icons/react";
 import { api, apiError, ct, dec2, today } from "@/lib/api";
-import { PROCESS_LABELS, PROCESS_ORDER, SP_PROCESS_ORDER } from "@/lib/processConfig";
+import { PROCESS_LABELS } from "@/lib/processConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,20 +18,24 @@ const Field = ({ label, children }) => (
 );
 
 export const IssueDialog = ({ open, onOpenChange, onDone }) => {
-  const [form, setForm] = useState({ process: "sarine", date: today(), karigar_id: "", karigar_name: "" });
+  const [form, setForm] = useState({ date: today(), karigar_id: "", karigar_name: "" });
   const [cart, setCart] = useState([]);
   const [scan, setScan] = useState("");
   const [karigars, setKarigars] = useState([]);
   const [stock, setStock] = useState({ items: [], total: 0 });
-  const [kind, setKind] = useState("normal");
   const [busy, setBusy] = useState(false);
   const scanRef = useRef(null);
-  const isSP = kind === "sp";
+
+  // the jangad's process and kapan type come from the packets themselves
+  const pProcess = (p) => p?.process || p?.last_process || null;
+  const process = pProcess(cart[0]);
+  const isSP = cart[0]?.mode === "sp_stone";
 
   useEffect(() => {
     if (!open) {
       setCart([]);
       setScan("");
+      setForm({ date: today(), karigar_id: "", karigar_name: "" });
     } else {
       setTimeout(() => scanRef.current?.focus(), 150);
     }
@@ -39,31 +43,24 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
 
   useEffect(() => {
     if (!open) return;
-    api.get("/karigars", { params: { process: form.process } })
+    api.get("/karigars", { params: process ? { process } : {} })
       .then((r) => setKarigars(r.data))
       .catch(() => setKarigars([]));
     api.get("/packets", {
-      params: { status: "in_stock", mode: isSP ? "sp" : "normal", for_process: form.process, limit: 200 },
+      params: {
+        status: "in_stock",
+        ...(process ? { process, mode: isSP ? "sp" : "normal" } : {}),
+        limit: 200,
+      },
     })
       .then((r) => setStock({ items: r.data.items, total: r.data.total }))
       .catch(() => setStock({ items: [], total: 0 }));
-  }, [form.process, open, isSP]);
+  }, [process, isSP, open]);
 
+  // a karigar picked for one process should not stay selected if the process changes
   useEffect(() => {
-    setCart([]);
-    setForm((f) => ({
-      ...f,
-      process: kind === "sp" ? "marking" : "sarine",
-      karigar_id: "",
-      karigar_name: "",
-    }));
-  }, [kind]);
-
-  // Changing the process empties the cart — a jangad only ever holds one process.
-  const setProcess = (v) => {
-    setForm({ ...form, process: v, karigar_id: "", karigar_name: "" });
-    setCart([]);
-  };
+    setForm((f) => ({ ...f, karigar_id: "", karigar_name: "" }));
+  }, [process]);
 
   const available = useMemo(
     () => stock.items.filter((p) => !cart.some((c) => c.id === p.id)),
@@ -78,15 +75,16 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
   const add = (p) => {
     if (cart.some((c) => c.id === p.id)) return toast.error(`${p.packet_no} is already in the list`);
     if (p.status === "issued") return toast.error(`${p.packet_no} is already out with a karigar`);
-    const pIsSP = p.mode === "sp_stone";
-    if (pIsSP !== isSP)
+    if (process && pProcess(p) !== process)
       return toast.error(
-        pIsSP
-          ? `${p.packet_no} belongs to an SP kapan stone — switch to SP mode to issue it`
-          : `${p.packet_no} is a normal kapan packet — switch to Normal mode to issue it`
+        `${p.packet_no} is in the ${PROCESS_LABELS[pProcess(p)] || "unassigned"} list — this jangad is ${PROCESS_LABELS[process]}`
       );
-    if (!p.last_process && p.process !== form.process)
-      return toast.error(`${p.packet_no} is in the ${PROCESS_LABELS[p.process]} list, not ${PROCESS_LABELS[form.process]}`);
+    if (cart.length && (p.mode === "sp_stone") !== isSP)
+      return toast.error(
+        isSP
+          ? `${p.packet_no} is a normal kapan packet — this jangad is for SP kapan stones`
+          : `${p.packet_no} belongs to an SP kapan stone — this jangad is for normal kapans`
+      );
     setCart((c) => [...c, p]);
   };
 
@@ -110,7 +108,7 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
     setBusy(true);
     try {
       const { data } = await api.post("/jangads", {
-        process: form.process,
+        process,
         date: form.date,
         packet_ids: cart.map((p) => p.id),
         karigar_id: form.karigar_id || null,
@@ -136,37 +134,20 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Field label="Kapan Type">
-            <Select value={kind} onValueChange={setKind}>
-              <SelectTrigger data-testid="issue-kind-select" className={inp}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="normal" data-testid="issue-kind-normal">Normal Kapan</SelectItem>
-                <SelectItem value="sp" data-testid="issue-kind-sp">SP Kapan (single packet)</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="Process">
-            <Select value={form.process} onValueChange={setProcess}>
-              <SelectTrigger data-testid="issue-process-select" className={inp}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(isSP ? SP_PROCESS_ORDER : PROCESS_ORDER).map((p) => (
-                  <SelectItem key={p} value={p} data-testid={`issue-process-opt-${p}`}>
-                    {PROCESS_LABELS[p]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          <Field label="Process (auto-detected)">
+            <div data-testid="issue-detected-process"
+              className="mt-1 flex h-10 items-center border border-black/15 bg-zinc-50 px-3 text-sm">
+              {process
+                ? `${isSP ? "SP · " : ""}${PROCESS_LABELS[process]}`
+                : <span className="text-zinc-400">Scan a packet to set the process</span>}
+            </div>
           </Field>
           <Field label="Date">
             <Input data-testid="issue-date-input" type="date" value={form.date}
               onChange={(e) => setForm({ ...form, date: e.target.value })} className={inp} />
           </Field>
-          <Field label={`${PROCESS_LABELS[form.process]} Karigar`}>
+          <Field label={`${process ? PROCESS_LABELS[process] : ""} Karigar`}>
             <Select
               value={form.karigar_id || "manual"}
               onValueChange={(v) => {
@@ -196,9 +177,9 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
           )}
         </div>
 
-        {karigars.length === 0 && (
+        {process && karigars.length === 0 && (
           <p className="border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-[#B4975A]" data-testid="issue-no-karigar-warning">
-            No karigar is registered for {PROCESS_LABELS[form.process]} — add one in Karigar, or type a name manually.
+            No karigar is registered for {PROCESS_LABELS[process]} — add one in Karigar, or type a name manually.
           </p>
         )}
 
@@ -268,7 +249,7 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
 
         <details className="border border-black/10" data-testid="issue-available-wrap">
           <summary className="cursor-pointer bg-zinc-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
-            {PROCESS_LABELS[form.process]} stock — {stock.total} packet(s) available
+            {process ? PROCESS_LABELS[process] : "All"} stock — {stock.total} packet(s) available
             {stock.total > stock.items.length && ` (showing first ${stock.items.length} — scan to add any other)`}
           </summary>
           <div className="max-h-[24vh] overflow-auto">
@@ -277,8 +258,8 @@ export const IssueDialog = ({ open, onOpenChange, onDone }) => {
                 {available.length === 0 && (
                   <tr>
                     <td className="px-3 py-4 text-center text-zinc-500">
-                      No packets in the {PROCESS_LABELS[form.process]} list. Create them in the kapan's{" "}
-                      {PROCESS_LABELS[form.process]} register first.
+                      No packets in stock{process ? ` for ${PROCESS_LABELS[process]}` : ""} — create them in the
+                      kapan's process register first.
                     </td>
                   </tr>
                 )}
