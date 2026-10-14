@@ -1503,7 +1503,8 @@ async def repair_kapan(kapan_id: str, user: dict = Depends(get_current_user)):
     could hand that cut-out weight back to the parent when an entry was edited, which made the
     kapan count the same carats twice.
     """
-    require(user, "can_delete")
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only an admin can repair a kapan's balance")
     _id = oid(kapan_id)
     kapan = await db.kapans.find_one({"_id": _id})
     if not kapan:

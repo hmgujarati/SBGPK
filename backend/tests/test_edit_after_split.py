@@ -93,12 +93,13 @@ class TestEditParentAfterSplit:
         finally:
             admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
 
-    def test_repair_requires_delete_rights(self, admin):
+    def test_repair_requires_admin(self, admin):
         k = _sp(admin, weight=20.0)
         try:
             sid = _stone(admin, k["id"], 10.0)
             staff = login("Staff")
             r = staff.post(f"{API}/kapans/{sid}/repair", timeout=TIMEOUT)
             assert r.status_code == 403, r.text
+            assert "admin" in r.json()["detail"].lower()
         finally:
             admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)

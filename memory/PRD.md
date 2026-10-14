@@ -175,3 +175,5 @@ See /app/memory/test_credentials.md (admin@polki.com / admin123).
   **New `POST /api/kapans/{id}/repair`** (admin) recomputes every packet weight from its own history
   minus the carried weight its children took; surfaced as a **Repair Balance** button on the balance
   bar whenever a kapan/stone is unbalanced. Tests: tests/test_edit_after_split.py (suite 107/107).
+- 2026-06-23: Repair Balance is strictly admin-only (backend checks role == "admin", button only
+  rendered for admin users) — staff with delete rights cannot run it.

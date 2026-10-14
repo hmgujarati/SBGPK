@@ -14,7 +14,7 @@ import { EntryTable } from "@/pages/Packets";
 
 export default function KapanDetail() {
   const { id } = useParams();
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const [k, setK] = useState(null);
   const [tab, setTab] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -146,7 +146,7 @@ export default function KapanDetail() {
         </div>
         <div className={`flex items-center gap-3 font-heading text-sm font-bold uppercase tracking-wide ${p.balanced ? "text-[#16A34A]" : "text-[#DC2626]"}`}>
           {p.balanced ? "Balanced" : `Unaccounted ${ct(p.difference)} ct`}
-          {!p.balanced && can("can_delete") && (
+          {!p.balanced && user?.role === "admin" && (
             <button data-testid="repair-balance-button" onClick={repair}
               title="Recompute every packet's weight from its own history"
               className="border border-[#DC2626] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#DC2626] transition-colors hover:bg-[#DC2626] hover:text-white">
