@@ -153,11 +153,11 @@ export default function KapanDetail() {
         </div>
         <div className={`flex items-center gap-3 font-heading text-sm font-bold uppercase tracking-wide ${p.balanced ? "text-[#16A34A]" : "text-[#DC2626]"}`}>
           {p.balanced ? "Balanced" : `Unaccounted ${ct(p.difference)} ct`}
-          {!p.balanced && user?.role === "admin" && (
+          {Math.abs(p.stock_drift || 0) > 0.02 && user?.role === "admin" && (
             <button data-testid="repair-balance-button" onClick={repair}
-              title="Recompute every packet's weight from its own history"
-              className="border border-[#DC2626] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#DC2626] transition-colors hover:bg-[#DC2626] hover:text-white">
-              Repair Balance
+              title="Stored packet weights drifted from the jangad ledger — recompute them"
+              className="border border-[#B4975A] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#B4975A] transition-colors hover:bg-[#B4975A] hover:text-white">
+              Fix Packet Weights
             </button>
           )}
         </div>

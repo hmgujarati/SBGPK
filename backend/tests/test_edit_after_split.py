@@ -116,7 +116,10 @@ class TestEditParentAfterSplit:
                                   {"$set": {"return_weight": 29.5, "return_boil": 29.5,
                                             "net_weight": 29.5, "loss": 0.5}})
             broken = _k(admin, sid)["report"]
-            assert broken["balanced"] is False, broken
+            # the ledger still balances (it is derived from the jangads) but the stored
+            # packet weights have drifted, which is what Fix Packet Weights is for
+            assert broken["balanced"] is True, broken
+            assert abs(broken["stock_drift"]) > 0.02, broken
 
             r = admin.post(f"{API}/kapans/{sid}/repair", timeout=TIMEOUT)
             assert r.status_code == 200, r.text

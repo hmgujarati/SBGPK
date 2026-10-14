@@ -197,3 +197,14 @@ See /app/memory/test_credentials.md (admin@polki.com / admin123).
   Palchu 34.43, RC 2.38, laser loss 4.34); after corrupting it the way the old build did
   (-161.10), one repair restores it to exactly those figures. The live site still runs the older
   2-pass repair — a redeploy is required before Repair Balance will fix it there.
+- 2026-06-23: **SIMPLER MODEL — reconciliation is now derived from the jangad ledger, not from
+  stored packet weights.** Material only ever leaves as Loss / RC / Nail RC (Filling adds), so:
+  `in hand = kapan weight − RC − Nail RC − total loss + filling gain`, and
+  `Stock = in hand − in process − Palchu available − in-packets − polish weight − un-packeted`.
+  "In process" now comes from OPEN jangad entries (the jangad is the truth), not packet rows.
+  Result: Accounted always equals the kapan weight, so phantom UNACCOUNTED figures are impossible.
+  Verified against a restore of the live DB (scripts/check_live_db.py): all 115 kapans balance,
+  Stone 3 (516.06/3) = RC 2.38 + loss 4.34 + Palchu 34.43 + in process 9.38, stock 0.00.
+  New report field `stock_drift` shows how far stored packet weights sit from the ledger; the admin
+  button is now "Fix Packet Weights" and appears only when drift exists (it no longer affects the
+  balance, just the Available figure for creating packets). Suite: 110/110.

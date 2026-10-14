@@ -96,10 +96,11 @@ class TestReplayRepair:
             mdb.packets.update_one({"_id": ObjectId(child["id"])}, {"$set": {"split_from": None}})
             mdb.packets.update_many({"kapan_id": ObjectId(sid), "packet_no": "1.1"},
                                     {"$set": {"weight": 30.0, "status": "in_stock"}})
-            assert _k(admin, sid)["report"]["balanced"] is False
+            assert abs(_k(admin, sid)["report"]["stock_drift"]) > 0.02
 
             first = admin.post(f"{API}/kapans/{sid}/repair", timeout=TIMEOUT).json()
             assert first["report"]["balanced"] is True, first["report"]
+            assert abs(first["report"]["stock_drift"]) <= 0.02, first["report"]
             second = admin.post(f"{API}/kapans/{sid}/repair", timeout=TIMEOUT).json()
             assert second["fixed"] == []
             assert second["report"]["balanced"] is True

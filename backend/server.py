@@ -362,6 +362,7 @@ async def build_reports(kapans: list) -> dict:
             "_id": {"k": "$kapan_id", "p": "$process", "r": "$returned"},
             "rc": {"$sum": "$rc"}, "nail_rc": {"$sum": "$nail_rc"},
             "palchu": {"$sum": "$palchu"},
+            "issued_weight": {"$sum": "$weight"}, "issued_pcs": {"$sum": "$pcs"},
             "boil": {"$sum": "$return_boil"}, "loss": {"$sum": "$loss"},
             "gain": {"$sum": "$weight_gain"}, "n": {"$sum": 1},
         }},
@@ -397,6 +398,10 @@ async def build_reports(kapans: list) -> dict:
         a["entries_count"] += row["n"]
         (a["done"] if returned else a["open"]).add(proc)
         if not returned:
+            # still out with a karigar — the jangad is the truth for what is in process
+            a["in_process_weight"] += r2(row.get("issued_weight") or 0)
+            a["in_process_pcs"] += int(row.get("issued_pcs") or 0)
+            a["issued_count"] += row["n"]
             continue
         a["b"]["rc"] += r2(row["rc"])
         a["b"]["nail_rc"] += r2(row["nail_rc"])
@@ -418,9 +423,7 @@ async def build_reports(kapans: list) -> dict:
             continue
         a["packet_count"] += row["n"]
         if row["_id"]["s"] == "issued":
-            a["in_process_weight"] += r2(row["weight"])
-            a["in_process_pcs"] += int(row["pcs"] or 0)
-            a["issued_count"] += row["n"]
+            continue
         elif row["_id"]["lp"] in POLISHED:
             a["polish_weight"] += r2(row["weight"])
         elif row["_id"].get("ss") == "fresh":
@@ -436,11 +439,20 @@ async def build_reports(kapans: list) -> dict:
         kapan_weight = r2(kapan.get("weight"))
         unpacketed = r2(kapan_weight - r2(a["packeted"]))
         palchu_available = r2(b["palchu"] - r2(a["palchu_used"]))
+        loss_total = r2(b["laser_loss"] + b["shape_ghat_loss"] + b["polish_loss"]
+                        + b["nats_loss"] + b["other_loss"])
+        # Simple ledger: material only ever leaves as loss, RC or Nail RC (and Filling adds).
+        # Everything else is still physically here — with a karigar, as Palchu, or in stock.
+        in_hand = r2(kapan_weight - b["rc"] - b["nail_rc"] - loss_total + b["filling_gain"])
+        derived_stock = r2(in_hand - a["in_process_weight"] - palchu_available
+                           - a["allocated_weight"] - a["polish_weight"] - unpacketed)
+        # how far the stored packet weights have drifted from the ledger (admin can repair)
+        stock_drift = r2(r2(a["stock_weight"]) - derived_stock)
+        a["stock_weight"] = derived_stock
         accounted = r2(
-            b["rc"] + b["nail_rc"] + palchu_available
-            + b["laser_loss"] + b["shape_ghat_loss"] + b["polish_loss"]
-            + b["nats_loss"] + b["other_loss"] + a["in_process_weight"] + a["polish_weight"]
-            + a["stock_weight"] + a["allocated_weight"] + unpacketed - b["filling_gain"]
+            b["rc"] + b["nail_rc"] + palchu_available + loss_total
+            + a["in_process_weight"] + a["polish_weight"]
+            + derived_stock + a["allocated_weight"] + unpacketed - b["filling_gain"]
         )
         report = {k: r2(v) for k, v in b.items()}
         report.update({
@@ -449,6 +461,7 @@ async def build_reports(kapans: list) -> dict:
             "in_process_pcs": a["in_process_pcs"],
             "polish_weight": r2(a["polish_weight"]),
             "stock_weight": r2(a["stock_weight"]),
+            "stock_drift": stock_drift,
             "allocated_weight": r2(a["allocated_weight"]),
             "palchu_used": r2(a["palchu_used"]),
             "palchu_available": palchu_available,
