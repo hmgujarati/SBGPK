@@ -1359,18 +1359,37 @@ async def update_entry(entry_id: str, payload: EntryUpdate, user: dict = Depends
         "packet_id": entry["packet_id"],
         "created_at": {"$lt": entry.get("created_at")},
     })
-    if prior == 0 and packet and issued > r2(packet.get("original_weight")) + 0.001:
+    # a packet is created out of rough, out of another packet (carried) or out of Palchu
+    orig = r2(packet.get("original_weight")) if packet else 0.0
+    carried = r2(packet.get("carried_weight")) if packet else 0.0
+    palchu_w = r2(packet.get("palchu_weight")) if packet else 0.0
+    created = r2(orig + carried + palchu_w)
+    if prior == 0 and packet and issued > created + 0.001:
         raise HTTPException(
             status_code=400,
-            detail=f"Issue weight cannot exceed the packet's created weight {r2(packet.get('original_weight')):.2f} cts",
+            detail=f"Issue weight cannot exceed the packet's created weight {created:.2f} cts",
         )
     # Correcting the packet's very first issue also corrects the packet's created figures,
     # otherwise the kapan would show a permanent unaccounted gap.
     if prior == 0 and packet:
-        await db.packets.update_one(
-            {"_id": packet["_id"]},
-            {"$set": {"original_weight": issued, "original_pcs": int(entry.get("pcs") or 0)}},
-        )
+        diff = r2(created - issued)
+        take_p = r2(min(diff, palchu_w))
+        take_c = r2(min(diff - take_p, carried))
+        take_o = r2(diff - take_p - take_c)
+        upd = {"original_pcs": int(entry.get("pcs") or 0)}
+        if take_p:
+            upd["palchu_weight"] = r2(palchu_w - take_p)
+        if take_c:
+            upd["carried_weight"] = r2(carried - take_c)
+        if take_o:
+            upd["original_weight"] = r2(orig - take_o)
+        await db.packets.update_one({"_id": packet["_id"]}, {"$set": upd})
+        # weight that came from another packet goes back to that packet
+        if take_c and packet.get("split_from"):
+            await db.packets.update_one(
+                {"kapan_id": packet["kapan_id"], "packet_no": packet["split_from"]},
+                {"$inc": {"weight": take_c}, "$set": {"status": "in_stock"}},
+            )
 
     if entry.get("returned"):
         if entry.get("process") != "laser" and int(entry.get("return_pcs") or 0) > int(entry.get("pcs") or 0):

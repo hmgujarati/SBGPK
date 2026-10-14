@@ -153,3 +153,15 @@ See /app/memory/test_credentials.md (admin@polki.com / admin123).
 - 2026-06-23: Auto-grow rows — pressing Down / Enter (or Right off the last cell) on the last row of
   the Add Stones list or any Add Packets grid appends a fresh row and focuses it, so long data entry
   never needs the mouse. `navKeyDown(e, onExtend)` takes the row-adding callback.
+- 2026-06-23: **Bug fix — admin could not edit the issue weight of a derived packet.** The ceiling
+  used only `original_weight` (rough-drawn portion), which is 0 for split-from-stock and Palchu
+  packets, so every edit failed with "created weight 0.00 cts". Ceiling is now
+  `original_weight + carried_weight + palchu_weight`, and a downward correction releases the
+  difference back to where it came from (Palchu pool / parent packet / un-packeted rough) so the
+  kapan stays balanced. Regression: /app/backend/tests/test_edit_split_packet.py (suite 104/104).
+- 2026-06-23: **Issue / Receive pages reworked** — Packet Issue now lists only packets still in
+  stock (code, kapan, packet, register, stage, pcs, weight) so an issued packet disappears from it;
+  jangad history lives on the Jangad page. Both pages page 50 at a time with search.
+  **Issue dialog auto-detects the process** from the first packet scanned/picked (Process and
+  Kapan-Type dropdowns removed); the karigar list filters to that process, and a packet from
+  another process or the wrong kapan type (SP vs normal) is rejected with a clear message.
