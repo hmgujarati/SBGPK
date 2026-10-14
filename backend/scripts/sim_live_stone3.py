@@ -56,13 +56,22 @@ cycle("laser",  [{"pcs":1,"weight":10.54}], [(10.43,0.0,2.38)])
 cycle("laser",  [{"pcs":1,"weight":9.38}], [None])
 
 d = a.get(f"{API}/kapans/{sid}", timeout=TIMEOUT).json()
-print("\nBEFORE:", {kk: d["report"][kk] for kk in ("kapan_weight","stock_weight","allocated_weight","in_process_weight","palchu_available","accounted_weight","difference","balanced")})
+print("\nCLEAN BUILD:", {kk: d["report"][kk] for kk in ("kapan_weight","stock_weight","in_process_weight","palchu_available","accounted_weight","difference","balanced")})
+
+# --- corrupt it exactly the way the old build did: every consumed packet gets its
+# --- entry weight handed back (that is what produced the live -53.44 / -2.49)
+for e in mdb.entries.find({"kapan_id": ObjectId(sid)}):
+    w = e.get("net_weight") if e.get("returned") else e.get("weight")
+    mdb.packets.update_one({"_id": e["packet_id"]},
+                           {"$set": {"weight": w, "status": "in_stock" if e.get("returned") else "issued"}})
+d = a.get(f"{API}/kapans/{sid}", timeout=TIMEOUT).json()
+print("\nBROKEN:", {kk: d["report"][kk] for kk in ("kapan_weight","stock_weight","in_process_weight","palchu_available","accounted_weight","difference","balanced")})
 print("packets:", [(x["packet_no"], x["status"], x["weight"]) for x in d["packets"]])
 
 r = a.post(f"{API}/kapans/{sid}/repair", timeout=TIMEOUT).json()
 print("\nfixed:", r["fixed"])
 print("capped:", r["capped"])
-print("AFTER:", {kk: r["report"][kk] for kk in ("kapan_weight","stock_weight","allocated_weight","in_process_weight","palchu_available","accounted_weight","difference","balanced")})
+print("AFTER REPAIR:", {kk: r["report"][kk] for kk in ("kapan_weight","stock_weight","in_process_weight","palchu_available","accounted_weight","difference","balanced")})
 d = a.get(f"{API}/kapans/{sid}", timeout=TIMEOUT).json()
 print("packets:", [(x["packet_no"], x["status"], x["weight"]) for x in d["packets"]])
 a.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)

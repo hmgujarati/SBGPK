@@ -192,3 +192,8 @@ See /app/memory/test_credentials.md (admin@polki.com / admin123).
   packet that asked for more than was available (`capped`, shown as a toast warning).
   Simulation of the live Stone 3 flow: /app/backend/scripts/sim_live_stone3.py (balances at 50.53).
   Also removed "Return Boil (total)" from the balance bar (not needed). Suite: 110/110.
+- 2026-06-23: Verified the replay repair against the exact live Stone 3 numbers
+  (scripts/sim_live_stone3.py): clean build balances at 50.53 (stock 0, in process 9.38,
+  Palchu 34.43, RC 2.38, laser loss 4.34); after corrupting it the way the old build did
+  (-161.10), one repair restores it to exactly those figures. The live site still runs the older
+  2-pass repair — a redeploy is required before Repair Balance will fix it there.
