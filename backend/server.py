@@ -1517,58 +1517,85 @@ async def repair_kapan(kapan_id: str, user: dict = Depends(get_current_user)):
     for e in entries:
         last_entry[e.get("packet_id")] = e
 
-    # pass 1 — in creation order, cap what each packet was cut from its parent and work out
-    # the weight it ended up holding (its latest entry, or its created weight)
-    avail, target_of, meta, carried_of = {}, {}, {}, {}
+    rough = r2(kapan.get("weight"))          # un-packeted rough still on the stone
+    palchu_pool = 0.0                        # Palchu recovered, usable only by the finishing stages
+    pool = []                                # [[packet, remaining]] free stock, oldest first
+    fixed, capped = [], []
+
     for p in packets:
-        carried = r2(p.get("carried_weight"))
-        src = p.get("split_from")
-        if src and carried > 0:
-            cap = r2(avail.get(src, 0.0))
-            if carried > cap + 0.001:
-                carried = cap
-        carried_of[p["_id"]] = carried
-        created = r2(r2(p.get("original_weight")) + carried + r2(p.get("palchu_weight")))
+        want = r2(r2(p.get("original_weight")) + r2(p.get("carried_weight")) + r2(p.get("palchu_weight")))
+        if want <= 0:
+            want = r2(p.get("weight"))
+        is_palchu = p.get("process") in PALCHU_PROCESSES
+
+        # 1. cut this packet out of whatever was genuinely available when it was made
+        from_rough = from_palchu = 0.0
+        taken_rows = []
+        if is_palchu:
+            from_palchu = r2(min(want, palchu_pool))
+            palchu_pool = r2(palchu_pool - from_palchu)
+            got = from_palchu
+        else:
+            from_rough = r2(min(want, rough))
+            rough = r2(rough - from_rough)
+            got = from_rough
+            for row in pool:
+                if got >= want - 0.001:
+                    break
+                take = r2(min(want - got, row[1]))
+                if take <= 0:
+                    continue
+                row[1] = r2(row[1] - take)
+                got = r2(got + take)
+                taken_rows.append((row[0], take))
+        got = r2(got)
+        if got < want - 0.001:
+            capped.append({"packet_no": p.get("packet_no"), "asked": want, "available": got})
+
+        # 2. then play this packet's own history forward
         e = last_entry.get(p["_id"])
         if e is None:
-            target = created
-            pcs, status, last_process = (int(p.get("original_pcs") or p.get("pcs") or 0),
-                                         "in_stock", p.get("last_process"))
+            final, pcs = got, int(p.get("original_pcs") or p.get("pcs") or 0)
+            # a packet that was never issued is still physically there, so a later packet
+            # could have been cut out of it (older builds allowed exactly that)
+            status, last_process, drawable = "in_stock", p.get("last_process"), True
         elif e.get("returned"):
-            target, pcs = r2(min(r2(e.get("net_weight")), created)), int(e.get("return_pcs") or 0)
-            status, last_process = "in_stock", e.get("process")
+            final, pcs = r2(min(r2(e.get("net_weight")), got)), int(e.get("return_pcs") or 0)
+            status, last_process, drawable = "in_stock", e.get("process"), True
+            palchu_pool = r2(palchu_pool + r2(e.get("palchu")))
         else:
-            target, pcs = r2(min(r2(e.get("weight")), created)), int(e.get("pcs") or 0)
-            status, last_process = "issued", e.get("prev_process")
-        avail[p.get("packet_no")] = target
-        target_of[p["_id"]] = target
-        meta[p["_id"]] = (pcs, status, last_process)
+            final, pcs = r2(min(r2(e.get("weight")), got)), int(e.get("pcs") or 0)
+            status, last_process, drawable = "issued", e.get("prev_process"), False
 
-    # pass 2 — subtract whatever each packet has since been cut into child packets
-    given = {}
-    for p in packets:
-        src = p.get("split_from")
-        if src:
-            given[src] = r2(given.get(src, 0.0) + carried_of[p["_id"]])
+        row = [p, final]
+        if drawable:
+            pool.append(row)
 
-    fixed = []
+        p["_row"] = row
+        p["_calc"] = {
+            "original_weight": from_rough,
+            "carried_weight": r2(got - from_rough - from_palchu),
+            "palchu_weight": from_palchu,
+            "pcs": pcs, "status": status, "last_process": last_process,
+            "split_from": (taken_rows[-1][0].get("packet_no") if taken_rows else None),
+        }
+
     for p in packets:
-        pcs, status, last_process = meta[p["_id"]]
-        taken = r2(given.get(p.get("packet_no"), 0.0))
-        weight = r2(max(target_of[p["_id"]] - taken, 0.0))
-        if status == "in_stock" and taken > 0 and weight <= 0:
+        c, weight = p["_calc"], r2(p["_row"][1])
+        status = c["status"]
+        if status == "in_stock" and weight <= 0 and r2(p["_calc"]["carried_weight"] + c["original_weight"] + c["palchu_weight"]) > 0:
             status = "consumed"
-        changes = {"weight": weight, "status": status, "last_process": last_process,
-                   "size": r2(weight / pcs) if pcs else 0.0,
-                   "carried_weight": carried_of[p["_id"]]}
-        if (r2(p.get("weight")) == weight and p.get("status") == status
-                and r2(p.get("carried_weight")) == carried_of[p["_id"]]):
+        changes = {**{k: c[k] for k in ("original_weight", "carried_weight", "palchu_weight",
+                                        "pcs", "last_process", "split_from")},
+                   "status": status, "weight": weight,
+                   "size": r2(weight / c["pcs"]) if c["pcs"] else 0.0}
+        if r2(p.get("weight")) == weight and p.get("status") == status:
             continue
         await db.packets.update_one({"_id": p["_id"]}, {"$set": changes})
         fixed.append({"packet_no": p.get("packet_no"), "was": r2(p.get("weight")), "now": weight})
 
     report = await build_report(_id, kapan)
-    return {"ok": True, "fixed": fixed, "report": report}
+    return {"ok": True, "fixed": fixed, "capped": capped, "report": report}
 
 
 @api.get("/entries/{entry_id}/jangad")

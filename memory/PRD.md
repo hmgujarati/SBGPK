@@ -182,3 +182,13 @@ See /app/memory/test_credentials.md (admin@polki.com / admin123).
   created weight), pass 2 subtracts what each packet has since given to children. This clears the
   legacy "child carries more than the parent returned" chains (preview stone 436.57/3 was -0.10 from
   a 45.10 chain off a 45.00 return). Covered by test_repair_caps_a_child_that_carries_more_than_its_parent_had.
+- 2026-06-23: **Repair Balance rewritten as a full replay.** The 2-pass version assumed one parent
+  per packet, but a packet can be cut from several source packets at once, so it mis-attributed
+  weight and could make a kapan worse. `POST /api/kapans/{id}/repair` now replays the whole kapan
+  from its own history in creation order: each packet is cut from the rough / free-stock pool
+  (Palchu packets from the Palchu pool), then its own jangad entry is played forward (received ->
+  net, out -> issued weight), and whatever later packets took out of it is deducted. It rewrites
+  original/carried/palchu weight, split_from, status and weight, is idempotent, and reports any
+  packet that asked for more than was available (`capped`, shown as a toast warning).
+  Simulation of the live Stone 3 flow: /app/backend/scripts/sim_live_stone3.py (balances at 50.53).
+  Also removed "Return Boil (total)" from the balance bar (not needed). Suite: 110/110.

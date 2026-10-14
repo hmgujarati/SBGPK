@@ -55,6 +55,14 @@ export default function KapanDetail() {
     if (!window.confirm("Recompute every packet's weight from its own jangad history?")) return;
     try {
       const { data } = await api.post(`/kapans/${id}/repair`);
+      if (data.capped?.length) {
+        toast.warning(
+          `Short of material: ${data.capped
+            .map((c) => `${c.packet_no} asked ${c.asked} but only ${c.available} was available`)
+            .join(", ")}`,
+          { duration: 12000 }
+        );
+      }
       toast.success(data.fixed.length ? `Repaired ${data.fixed.length} packet(s)` : "Nothing to repair");
       load();
     } catch (err) {
@@ -138,7 +146,6 @@ export default function KapanDetail() {
           <span>Stock (pre-polish): <b className="tabular-nums" data-testid="rep-stock">{ct(p.stock_weight)}</b></span>
           <span>In packets (unissued): <b className="tabular-nums" data-testid="rep-allocated">{ct(p.allocated_weight)}</b></span>
           <span>Palchu (available): <b className="tabular-nums" data-testid="rep-palchu">{ct(p.palchu_available)}</b></span>
-          <span>Return Boil (total): <b className="tabular-nums">{ct(p.boil)}</b></span>
           <span>Nats Loss: <b className="tabular-nums">{ct(p.nats_loss)}</b></span>
           <span>Sarine / Marking Loss: <b className="tabular-nums" data-testid="rep-other-loss">{ct(p.other_loss)}</b></span>
           <span>Filling Gain: <b className="tabular-nums">{ct(p.filling_gain)}</b></span>
