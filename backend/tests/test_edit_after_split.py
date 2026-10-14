@@ -93,6 +93,40 @@ class TestEditParentAfterSplit:
         finally:
             admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
 
+    def test_repair_caps_a_child_that_carries_more_than_its_parent_had(self, admin):
+        """Live shape: a chain of splits each carrying 45.10 out of a parent that only
+        returned 45.00 — repair must cap the chain and clear the negative balance."""
+        k = _sp(admin, weight=60.0)
+        try:
+            sid = _stone(admin, k["id"], 30.0)
+            p = _bulk(admin, sid, "marking", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
+            e = _issue(admin, "marking", [p["id"]]).json()["entries"][0]
+            receive(admin, e["id"], return_pcs=1, return_weight=30.0, return_boil=30.0, rc=0.0, nail_rc=0.0)
+            child = _bulk(admin, sid, "laser", [{"pcs": 1, "weight": 30.0}]).json()["created"][0]
+
+            # simulate the legacy corruption: the parent's return is later cut to 29.5 while the
+            # child keeps carrying the full 30 (today's build refuses this edit)
+            import pymongo
+            from dotenv import dotenv_values
+            from bson import ObjectId
+            cfg = dotenv_values("/app/backend/.env")
+            cl = pymongo.MongoClient(cfg["MONGO_URL"])
+            db = cl[cfg["DB_NAME"]]
+            db.entries.update_one({"_id": ObjectId(e["id"])},
+                                  {"$set": {"return_weight": 29.5, "return_boil": 29.5,
+                                            "net_weight": 29.5, "loss": 0.5}})
+            broken = _k(admin, sid)["report"]
+            assert broken["balanced"] is False, broken
+
+            r = admin.post(f"{API}/kapans/{sid}/repair", timeout=TIMEOUT)
+            assert r.status_code == 200, r.text
+            rep = r.json()["report"]
+            assert rep["balanced"] is True, rep
+            after = [x for x in _k(admin, sid)["packets"] if x["id"] == child["id"]]
+            assert after and after[0]["weight"] == 29.5, after
+        finally:
+            admin.delete(f"{API}/kapans/{k['id']}", timeout=TIMEOUT)
+
     def test_repair_requires_admin(self, admin):
         k = _sp(admin, weight=20.0)
         try:

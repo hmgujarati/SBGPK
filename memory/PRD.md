@@ -177,3 +177,8 @@ See /app/memory/test_credentials.md (admin@polki.com / admin123).
   bar whenever a kapan/stone is unbalanced. Tests: tests/test_edit_after_split.py (suite 107/107).
 - 2026-06-23: Repair Balance is strictly admin-only (backend checks role == "admin", button only
   rendered for admin users) — staff with delete rights cannot run it.
+- 2026-06-23: Repair Balance upgraded to a 2-pass recompute — pass 1 walks packets in creation order
+  and caps each packet's `carried_weight` at what its parent actually had (and its target at its
+  created weight), pass 2 subtracts what each packet has since given to children. This clears the
+  legacy "child carries more than the parent returned" chains (preview stone 436.57/3 was -0.10 from
+  a 45.10 chain off a 45.00 return). Covered by test_repair_caps_a_child_that_carries_more_than_its_parent_had.

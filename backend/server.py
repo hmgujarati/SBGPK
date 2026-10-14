@@ -1510,42 +1510,61 @@ async def repair_kapan(kapan_id: str, user: dict = Depends(get_current_user)):
     if not kapan:
         raise HTTPException(status_code=404, detail="Kapan not found")
 
-    packets = await db.packets.find({"kapan_id": _id}).to_list(5000)
+    packets = sorted(await db.packets.find({"kapan_id": _id}).to_list(5000),
+                     key=lambda p: int(p.get("seq") or 0))
     entries = await db.entries.find({"kapan_id": _id}).sort("created_at", 1).to_list(5000)
     last_entry = {}
     for e in entries:
         last_entry[e.get("packet_id")] = e
 
+    # pass 1 — in creation order, cap what each packet was cut from its parent and work out
+    # the weight it ended up holding (its latest entry, or its created weight)
+    avail, target_of, meta, carried_of = {}, {}, {}, {}
+    for p in packets:
+        carried = r2(p.get("carried_weight"))
+        src = p.get("split_from")
+        if src and carried > 0:
+            cap = r2(avail.get(src, 0.0))
+            if carried > cap + 0.001:
+                carried = cap
+        carried_of[p["_id"]] = carried
+        created = r2(r2(p.get("original_weight")) + carried + r2(p.get("palchu_weight")))
+        e = last_entry.get(p["_id"])
+        if e is None:
+            target = created
+            pcs, status, last_process = (int(p.get("original_pcs") or p.get("pcs") or 0),
+                                         "in_stock", p.get("last_process"))
+        elif e.get("returned"):
+            target, pcs = r2(min(r2(e.get("net_weight")), created)), int(e.get("return_pcs") or 0)
+            status, last_process = "in_stock", e.get("process")
+        else:
+            target, pcs = r2(min(r2(e.get("weight")), created)), int(e.get("pcs") or 0)
+            status, last_process = "issued", e.get("prev_process")
+        avail[p.get("packet_no")] = target
+        target_of[p["_id"]] = target
+        meta[p["_id"]] = (pcs, status, last_process)
+
+    # pass 2 — subtract whatever each packet has since been cut into child packets
     given = {}
     for p in packets:
         src = p.get("split_from")
         if src:
-            given[src] = r2(given.get(src, 0.0) + r2(p.get("carried_weight")))
+            given[src] = r2(given.get(src, 0.0) + carried_of[p["_id"]])
 
     fixed = []
     for p in packets:
-        e = last_entry.get(p["_id"])
-        if e is None:
-            target = r2(r2(p.get("original_weight")) + r2(p.get("carried_weight")) + r2(p.get("palchu_weight")))
-            pcs, status, last_process = int(p.get("original_pcs") or p.get("pcs") or 0), "in_stock", p.get("last_process")
-        elif e.get("returned"):
-            target, pcs = r2(e.get("net_weight")), int(e.get("return_pcs") or 0)
-            status, last_process = "in_stock", e.get("process")
-        else:
-            target, pcs = r2(e.get("weight")), int(e.get("pcs") or 0)
-            status, last_process = "issued", e.get("prev_process")
-
+        pcs, status, last_process = meta[p["_id"]]
         taken = r2(given.get(p.get("packet_no"), 0.0))
-        weight = r2(max(target - taken, 0.0))
+        weight = r2(max(target_of[p["_id"]] - taken, 0.0))
         if status == "in_stock" and taken > 0 and weight <= 0:
             status = "consumed"
-        if r2(p.get("weight")) == weight and p.get("status") == status:
+        changes = {"weight": weight, "status": status, "last_process": last_process,
+                   "size": r2(weight / pcs) if pcs else 0.0,
+                   "carried_weight": carried_of[p["_id"]]}
+        if (r2(p.get("weight")) == weight and p.get("status") == status
+                and r2(p.get("carried_weight")) == carried_of[p["_id"]]):
             continue
-        await db.packets.update_one(
-            {"_id": p["_id"]},
-            {"$set": {"weight": weight, "status": status, "last_process": last_process,
-                      "size": r2(weight / pcs) if pcs else 0.0}},
-        )
+        await db.packets.update_one({"_id": p["_id"]}, {"$set": changes})
         fixed.append({"packet_no": p.get("packet_no"), "was": r2(p.get("weight")), "now": weight})
 
     report = await build_report(_id, kapan)
