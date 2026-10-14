@@ -51,6 +51,17 @@ export default function KapanDetail() {
     ...(k.entries || []).filter((e) => e.process === tab).map((e) => ({ ...e, kapan_no: k.kapan_no })),
   ];
 
+  const repair = async () => {
+    if (!window.confirm("Recompute every packet's weight from its own jangad history?")) return;
+    try {
+      const { data } = await api.post(`/kapans/${id}/repair`);
+      toast.success(data.fixed.length ? `Repaired ${data.fixed.length} packet(s)` : "Nothing to repair");
+      load();
+    } catch (err) {
+      toast.error(apiError(err));
+    }
+  };
+
   const removeEntry = async (e) => {
     if (!window.confirm(`Delete jangad ${e.jangad_no}? The packet returns to its previous weight.`)) return;
     try {
@@ -133,8 +144,15 @@ export default function KapanDetail() {
           <span>Filling Gain: <b className="tabular-nums">{ct(p.filling_gain)}</b></span>
           <span>Accounted: <b className="tabular-nums">{ct(p.accounted_weight)}</b></span>
         </div>
-        <div className={`font-heading text-sm font-bold uppercase tracking-wide ${p.balanced ? "text-[#16A34A]" : "text-[#DC2626]"}`}>
+        <div className={`flex items-center gap-3 font-heading text-sm font-bold uppercase tracking-wide ${p.balanced ? "text-[#16A34A]" : "text-[#DC2626]"}`}>
           {p.balanced ? "Balanced" : `Unaccounted ${ct(p.difference)} ct`}
+          {!p.balanced && can("can_delete") && (
+            <button data-testid="repair-balance-button" onClick={repair}
+              title="Recompute every packet's weight from its own history"
+              className="border border-[#DC2626] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#DC2626] transition-colors hover:bg-[#DC2626] hover:text-white">
+              Repair Balance
+            </button>
+          )}
         </div>
       </div>
 

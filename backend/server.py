@@ -1341,6 +1341,7 @@ async def update_entry(entry_id: str, payload: EntryUpdate, user: dict = Depends
     entry = await db.entries.find_one({"_id": _id})
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
+    before = dict(entry)
 
     data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     entry.update(data)
@@ -1370,8 +1371,10 @@ async def update_entry(entry_id: str, payload: EntryUpdate, user: dict = Depends
             detail=f"Issue weight cannot exceed the packet's created weight {created:.2f} cts",
         )
     # Correcting the packet's very first issue also corrects the packet's created figures,
-    # otherwise the kapan would show a permanent unaccounted gap.
-    if prior == 0 and packet:
+    # otherwise the kapan would show a permanent unaccounted gap. (applied after validation)
+    async def apply_created_figures():
+        if prior or not packet:
+            return
         diff = r2(created - issued)
         take_p = r2(min(diff, palchu_w))
         take_c = r2(min(diff - take_p, carried))
@@ -1400,17 +1403,32 @@ async def update_entry(entry_id: str, payload: EntryUpdate, user: dict = Depends
         validate_return(entry.get("process"), issued, entry)
 
     compute_entry(entry)
-    entry["edited_by"] = user.get("name")
-    entry["edited_at"] = now_utc()
-    entry.pop("_id", None)
-    await db.entries.update_one({"_id": _id}, {"$set": entry})
-    entry["_id"] = _id
 
     # Only the packet's most recent entry defines its current weight.
     newer = await db.entries.count_documents({
         "packet_id": entry["packet_id"],
         "created_at": {"$gt": entry.get("created_at")},
     })
+    # part of this packet may already have been cut into child packets — never hand that
+    # weight back to the packet, or the kapan would count the same carats twice
+    packet_now = await db.packets.find_one({"_id": entry["packet_id"]})
+    prev_target = r2(before.get("net_weight")) if before.get("returned") else r2(before.get("weight"))
+    given = r2(max(prev_target - r2(packet_now.get("weight") if packet_now else 0.0), 0.0))
+    new_target = r2(entry.get("net_weight")) if entry.get("returned") else issued
+    if not newer and given > 0 and new_target < given - 0.001:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{given:.2f} cts of this packet has already been cut into other packets — "
+                   f"the figures cannot be lower than that. Undo those packets first.",
+        )
+
+    entry["edited_by"] = user.get("name")
+    entry["edited_at"] = now_utc()
+    entry.pop("_id", None)
+    await apply_created_figures()
+    await db.entries.update_one({"_id": _id}, {"$set": entry})
+    entry["_id"] = _id
+
     if not newer:
         if entry.get("returned"):
             pcs = int(entry.get("return_pcs") or 0)
@@ -1422,6 +1440,10 @@ async def update_entry(entry_id: str, payload: EntryUpdate, user: dict = Depends
             wt = issued
             last_process = entry.get("prev_process")
             status = "issued"
+        if given > 0:
+            wt = r2(max(wt - given, 0.0))
+            if status == "in_stock" and wt <= 0:
+                status = "consumed"
         await db.packets.update_one(
             {"_id": entry["packet_id"]},
             {"$set": {
@@ -1452,12 +1474,17 @@ async def delete_entry(entry_id: str, user: dict = Depends(get_current_user)):
     if later:
         raise HTTPException(status_code=400, detail="Delete the newer entries of this packet first")
     await db.entries.delete_one({"_id": _id})
+    # keep back whatever has already been cut out of this packet into child packets
+    packet_now = await db.packets.find_one({"_id": entry.get("packet_id")})
+    prev_target = r2(entry.get("net_weight")) if entry.get("returned") else r2(entry.get("weight"))
+    given = r2(max(prev_target - r2(packet_now.get("weight") if packet_now else 0.0), 0.0))
+    back = r2(max(r2(entry.get("weight")) - given, 0.0))
     await db.packets.update_one(
         {"_id": entry.get("packet_id")},
         {"$set": {
-            "status": "in_stock",
+            "status": "in_stock" if back > 0 or given <= 0 else "consumed",
             "stock_state": "returned" if entry.get("prev_process") else "fresh",
-            "weight": r2(entry.get("weight")),
+            "weight": back,
             "pcs": int(entry.get("pcs") or 0),
             "size": r2(entry.get("size")),
             "last_process": entry.get("prev_process"),
@@ -1465,6 +1492,63 @@ async def delete_entry(entry_id: str, user: dict = Depends(get_current_user)):
         }},
     )
     return {"ok": True}
+
+
+@api.post("/kapans/{kapan_id}/repair")
+async def repair_kapan(kapan_id: str, user: dict = Depends(get_current_user)):
+    """Recompute every packet's current weight from its own history.
+
+    A packet weighs: whatever its latest entry left it with (or its created weight if it was
+    never issued) MINUS whatever has since been cut out of it into child packets. Older builds
+    could hand that cut-out weight back to the parent when an entry was edited, which made the
+    kapan count the same carats twice.
+    """
+    require(user, "can_delete")
+    _id = oid(kapan_id)
+    kapan = await db.kapans.find_one({"_id": _id})
+    if not kapan:
+        raise HTTPException(status_code=404, detail="Kapan not found")
+
+    packets = await db.packets.find({"kapan_id": _id}).to_list(5000)
+    entries = await db.entries.find({"kapan_id": _id}).sort("created_at", 1).to_list(5000)
+    last_entry = {}
+    for e in entries:
+        last_entry[e.get("packet_id")] = e
+
+    given = {}
+    for p in packets:
+        src = p.get("split_from")
+        if src:
+            given[src] = r2(given.get(src, 0.0) + r2(p.get("carried_weight")))
+
+    fixed = []
+    for p in packets:
+        e = last_entry.get(p["_id"])
+        if e is None:
+            target = r2(r2(p.get("original_weight")) + r2(p.get("carried_weight")) + r2(p.get("palchu_weight")))
+            pcs, status, last_process = int(p.get("original_pcs") or p.get("pcs") or 0), "in_stock", p.get("last_process")
+        elif e.get("returned"):
+            target, pcs = r2(e.get("net_weight")), int(e.get("return_pcs") or 0)
+            status, last_process = "in_stock", e.get("process")
+        else:
+            target, pcs = r2(e.get("weight")), int(e.get("pcs") or 0)
+            status, last_process = "issued", e.get("prev_process")
+
+        taken = r2(given.get(p.get("packet_no"), 0.0))
+        weight = r2(max(target - taken, 0.0))
+        if status == "in_stock" and taken > 0 and weight <= 0:
+            status = "consumed"
+        if r2(p.get("weight")) == weight and p.get("status") == status:
+            continue
+        await db.packets.update_one(
+            {"_id": p["_id"]},
+            {"$set": {"weight": weight, "status": status, "last_process": last_process,
+                      "size": r2(weight / pcs) if pcs else 0.0}},
+        )
+        fixed.append({"packet_no": p.get("packet_no"), "was": r2(p.get("weight")), "now": weight})
+
+    report = await build_report(_id, kapan)
+    return {"ok": True, "fixed": fixed, "report": report}
 
 
 @api.get("/entries/{entry_id}/jangad")

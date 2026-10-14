@@ -165,3 +165,13 @@ See /app/memory/test_credentials.md (admin@polki.com / admin123).
   **Issue dialog auto-detects the process** from the first packet scanned/picked (Process and
   Kapan-Type dropdowns removed); the karigar list filters to that process, and a packet from
   another process or the wrong kapan type (SP vs normal) is rejected with a clear message.
+- 2026-06-23: **P0 fix — editing an entry resurrected weight already cut into child packets.**
+  `update_entry` / `delete_entry` reset the packet's weight straight from the entry, ignoring that
+  part of it had since been split into other packets, so the same carats were counted twice
+  (live symptom: Stone 3 showing UNACCOUNTED -26.08 ct, exactly its Stock figure). Now the sync
+  subtracts what has already been cut away (`given`), an edit that drops the figures below that
+  amount is refused with a clear message, and all mutations happen only after validation (a refused
+  edit no longer half-writes the entry).
+  **New `POST /api/kapans/{id}/repair`** (admin) recomputes every packet weight from its own history
+  minus the carried weight its children took; surfaced as a **Repair Balance** button on the balance
+  bar whenever a kapan/stone is unbalanced. Tests: tests/test_edit_after_split.py (suite 107/107).
